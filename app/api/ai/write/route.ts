@@ -1,0 +1,111 @@
+// POST /api/ai/write — AI 写作助手（续写 / 润色 / 起标题 / 推荐选题）
+// 链路：Next.js → AgentScope 服务 /ai/write（ReActAgent + DeepSeek，文风注入 system prompt）
+// 计费（分档）：续写 15 · 润色 10 · 起标题 5 · 推荐选题 5（DB 模式登录用户，事务+流水；生成失败自动退分）
+// 降级：Python 服务未启动或非 live → 返回内置模板文本（退回已扣积分）
+import { NextResponse } from "next/server";
+import { getCurrentUser } from "@/lib/auth";
+import { spendPoints, creditPoints } from "@/lib/points";
+import { dbEnabled } from "@/lib/db";
+
+const LABELS: Record<string, string> = {
+  continue: "续写",
+  polish: "润色",
+  title: "起标题",
+  topic: "推荐选题",
+};
+
+const PRICES: Record<string, number> = {
+  continue: 15,
+  polish: 10,
+  title: 5,
+  topic: 5,
+};
+
+// 演示模板（Python 服务不可用时兜底）
+const CONTENT: Record<string, string> = {
+  continue:
+    "\n\n具体展开之前，先给一个可复现的判据：用 EXPLAIN ANALYZE 跑一遍你的典型查询，如果执行计划里 Filter 节点的耗时占比超过 40%，说明标量过滤正在大量「白检」——向量算出来的相似度被业务条件扔掉了大半。这才是混合检索该出场的时候，而不是矩阵里数字变大的那一刻。\n\n选型是知识问题，时机是成本问题。大部分团队死在后者。",
+  polish:
+    "\n技术选型最大的陷阱，不是选错，而是拿着别人的规模做自己的决定。\n\n文章不到一万篇时，pgvector 的 HNSW 索引足够把召回率压上 95%，查询耗时个位数毫秒。此刻引入独立向量库，你收获的清单很确定：一个需要运维的有状态服务、一份新增的内存账单，和每个新成员都要重读一遍的部署文档。\n\n规模没到，架构先行——是用今天的确定性，为明天还不存在的问题付利息。",
+  title:
+    "\n1. pgvector 够用了：别急着上专用向量库\n2. 你的向量库焦虑，可能只是数据没到量级\n3. 在引入专用向量库之前，请先跑一次 EXPLAIN ANALYZE\n4. 一万篇以下，Postgres 就是最好的向量数据库\n5. 向量库选型的真正分界线：不是数据量，是过滤耦合",
+  topic:
+    "\n1. 为什么我把博客的检索从向量库换回了 MySQL 全文索引\n2. 给 AI 分身喂了 20 篇旧文之后，它学会了我最坏的表达习惯\n3. 个人博主的 RAG：从「能检索」到「敢引用」差了哪三步\n4. 流式输出的体验设计：让读者等得起的前 300 毫秒\n5. 博客平台的积分经济：为什么免费的 AI 一定被玩死",
+};
+
+export async function POST(req: Request) {
+  const body = (await req.json().catch(() => ({}))) as {
+    mode?: string;
+    draft?: string;
+    author?: string;
+  };
+  const mode = body.mode ?? "";
+  if (!LABELS[mode]) {
+    return NextResponse.json(
+      { error: "mode 须为 continue | polish | title | topic" },
+      { status: 400 }
+    );
+  }
+  const draft = (body.draft ?? "").trim();
+  const author = (body.author ?? "博主").trim();
+  const cost = PRICES[mode];
+
+  // DB 模式：登录 + 按档预扣积分（失败自动退回）
+  let userId: number | null = null;
+  let pointsNote = "演示模式 · 不扣墨水";
+  if (dbEnabled()) {
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json({ error: "登录后才能使用 AI 写作助手" }, { status: 401 });
+    }
+    const spend = await spendPoints(user.id, cost, `AI写作·${LABELS[mode]}`);
+    if (!spend.ok) {
+      return NextResponse.json({ error: spend.error }, { status: 402 });
+    }
+    userId = user.id;
+    pointsNote = `已扣 ${cost} 滴墨水 · 余额 ${spend.balance}`;
+  }
+
+  // 首选 AgentScope 服务真实生成
+  const agentUrl = process.env.AGENT_SERVICE_URL;
+  if (agentUrl) {
+    try {
+      const upstream = await fetch(`${agentUrl.replace(/\/$/, "")}/ai/write`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode, draft: draft || `（作者尚未写下草稿，主题：${author} 的技术专栏）`, author }),
+        signal: AbortSignal.timeout(90_000),
+      });
+      if (upstream.ok) {
+        const data = (await upstream.json()) as { text?: string };
+        if (typeof data.text === "string" && data.text.trim()) {
+          return NextResponse.json({
+            label: LABELS[mode],
+            text: data.text,
+            aiGenerated: true,
+            cost,
+            pointsNote,
+          });
+        }
+      }
+      // 上游异常或非 live → 落入模板兜底
+    } catch {
+      // 服务未启动 / 超时 → 模板兜底
+    }
+  }
+
+  // 生成未成功：已扣的积分退回
+  if (userId) {
+    const back = await creditPoints(userId, cost, "AI写作失败退还");
+    pointsNote = `生成失败，${cost} 滴墨水已退回${back.balance !== undefined ? ` · 余额 ${back.balance}` : ""}`;
+  }
+
+  return NextResponse.json({
+    label: LABELS[mode],
+    text: CONTENT[mode],
+    aiGenerated: true,
+    cost,
+    pointsNote,
+    fallback: true,
+  });
+}

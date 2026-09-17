@@ -3,6 +3,25 @@
 > 博主有 AI 分身、读者能和文章对话、创作能变现、平台自己会运营。
 > 一套用 Next.js 15 写完前后端的个人博客/内容社区，自带杂志编辑风设计系统。
 
+## 🖼 效果预览
+
+| 首页 · 杂志信息流 | 文章页 · AI 分身问答 |
+|---|---|
+| ![首页](docs/assets/preview-home.png) | ![文章页与分身](docs/assets/preview-article-agent.png) |
+
+| AI 创作台 | 专栏合集 |
+|---|---|
+| ![创作台](docs/assets/preview-studio.png) | ![专栏](docs/assets/preview-series.png) |
+
+| 墨仓 · 墨水经济 | 夜间模式 |
+|---|---|
+| ![墨仓](docs/assets/preview-points.png) | ![夜间](docs/assets/preview-night.png) |
+
+<p align="center">
+  <img src="docs/assets/preview-mobile.png" width="280" alt="手机版" /><br/>
+  <sub>手机版 · 底部墨条拇指导航</sub>
+</p>
+
 ## ✨ 功能总览
 
 ### 创作与阅读

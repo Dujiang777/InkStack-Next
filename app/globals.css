@@ -8339,3 +8339,2059 @@ body.m .tc-sum { font-size: 0.82rem; -webkit-line-clamp: 3; }
   .tag-seal, .tag-plate, .tc-no, .tc-body, .tc-body::before, .tag-cta { transition: none !important; }
   .tag-title:hover .tag-seal { transform: rotate(-6deg); }
 }
+
+/* ============================================================
+   v17.3 层：墨仓 /points「墨水补给站」深度打磨
+   范围：套餐墨锭卡 / 收银台装帧 / 到账回执 / 流水账页 / 页尾收口 / 加载骨架
+   色板纪律：零新增色值。渠道色标复用既有 --tok-s（橄榄绿）与 --tok-f（靛蓝），
+   两张卡面纹理一律用 background-image 叠加，不用伪元素压住内容。
+   ============================================================ */
+
+/* ============ 1. 补给站题签：给「套餐区」一个明确的开场，顺便削掉段落之间的死白 ============ */
+.topup-head { margin-bottom: 26px; }
+.topup-head .kicker { margin-bottom: 10px; }
+/* 只改补给站这一处 —— .section-title 在 MeClient（账号安全）也在用，
+   不整体放大，避免波及其它页面 */
+.topup-head .section-title {
+  font-family: var(--serif);
+  font-size: 1.6rem;
+  letter-spacing: 0.05em;
+  margin-bottom: 10px;
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+.topup-lede { font-size: 0.84rem; line-height: 1.85; color: var(--ink-muted); max-width: 44em; }
+
+/* ============ 2. 套餐卡：从「平铺价目卡」改成「墨锭」 ============ */
+.topup-grid { gap: 16px; align-items: stretch; }
+
+.pack-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  align-items: start;
+  gap: 0 14px;
+  padding: 20px 18px 18px;
+  border: 1px solid var(--rule);
+  background: var(--surface);
+  /* 纸纹：竖直细线 + 斜向淡痕，用父级 background-image 而非伪元素 */
+  background-image:
+    repeating-linear-gradient(90deg, color-mix(in srgb, var(--ink) 4%, transparent) 0 1px, transparent 1px 7px),
+    linear-gradient(180deg, color-mix(in srgb, var(--paper) 70%, transparent), transparent 62%);
+  overflow: visible;
+  transition: transform var(--dur-base) var(--ease), border-color var(--dur-base) var(--ease),
+    box-shadow var(--dur-base) var(--ease), background-color var(--dur-base) var(--ease);
+}
+.pack-card:hover {
+  transform: translateY(-4px);
+  border-color: var(--accent-big);
+  box-shadow: 4px 5px 0 color-mix(in srgb, var(--accent-big) 24%, transparent);
+}
+.pack-card:focus-visible { outline: 2px solid var(--accent-big); outline-offset: 3px; }
+
+/* 选中的那一档：朱砂双线 + 墨色硬阴影 + 抬高一档 */
+.pack-card.sel {
+  border-color: var(--accent-big);
+  background-color: color-mix(in srgb, var(--accent-big) 5%, var(--surface));
+  box-shadow: 5px 6px 0 var(--accent-big);
+}
+.pack-card.sel:hover { box-shadow: 6px 7px 0 var(--accent-big); }
+
+/* 竖排序数：壹贰叁肆，与全站编号语言一致。
+   用实色 --ink-muted（≈7:1）而不是 opacity 压淡——小字透明度会跌破 4.5:1。 */
+.pack-no {
+  font-family: var(--serif);
+  font-size: 1.06rem;
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--ink-muted);
+  padding-top: 2px;
+  text-align: center;
+  transition: color var(--dur-base) var(--ease);
+}
+.pack-card.sel .pack-no { color: var(--accent-big); }
+.pack-card:hover .pack-no { color: var(--ink); }
+.pack-card.sel:hover .pack-no { color: var(--accent-big); }
+
+.pack-body { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-width: 0; }
+
+.pack-name {
+  font-size: 0.76rem;
+  letter-spacing: 0.16em;
+  color: var(--ink-muted);
+  font-weight: 600;
+}
+.pack-points {
+  font-family: var(--serif);
+  font-size: 2.1rem;
+  line-height: 1.05;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.pack-points i {
+  font-style: normal;
+  font-family: var(--sans);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--ink-muted);
+  margin-left: 5px;
+}
+
+/* 换算刻度：把「每元换得多少滴」画成一条刻痕，四档之间形成单调递增的节奏 */
+.pack-unit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  font-size: 0.7rem;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+  margin-top: 2px;
+}
+.pack-meter {
+  position: relative;
+  flex: 0 0 auto;
+  width: 42px;
+  height: 6px;
+  background: color-mix(in srgb, var(--ink) 12%, transparent);
+  overflow: hidden;
+}
+.pack-meter i {
+  display: block;
+  height: 100%;
+  background: var(--ink-muted);
+  transition: width var(--dur-slow) var(--ease), background-color var(--dur-base) var(--ease);
+}
+.pack-card.sel .pack-meter i { background: var(--accent-big); }
+
+/* 价格：货币符号降一级，数字占主位 */
+.pack-price {
+  font-family: var(--serif);
+  font-size: 1.32rem;
+  font-weight: 700;
+  color: var(--accent);
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px solid var(--rule);
+  width: 100%;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+.pack-card:not(.sel) .pack-price { color: var(--ink); }
+
+.pack-note { font-size: 0.71rem; line-height: 1.55; color: var(--ink-muted); }
+
+/* 角标：惠 / 推荐 做成骑缝标签，贴在顶边上 */
+.pack-tag {
+  position: absolute;
+  top: -11px;
+  left: 14px;
+  font-family: var(--serif);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--paper);
+  background: var(--ink);
+  padding: 3px 9px 2px;
+  transition: background-color var(--dur-base) var(--ease);
+}
+.pack-card.sel .pack-tag,
+.pack-card:hover .pack-tag { background: var(--accent-big); }
+
+/* 选中章：不再是圆点，改成盖上去的方印 */
+.pack-card.sel::after {
+  content: "选";
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 26px;
+  height: 26px;
+  font-family: var(--serif);
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--paper);
+  background: var(--accent);
+  border: 0;
+  border-radius: 0;
+  display: grid;
+  place-items: center;
+  transform: rotate(-6deg);
+  animation: pack-stamp 0.42s cubic-bezier(0.2, 1.5, 0.4, 1) both;
+}
+@keyframes pack-stamp {
+  0% { opacity: 0; transform: rotate(-6deg) scale(1.9); }
+  100% { opacity: 1; transform: rotate(-6deg) scale(1); }
+}
+
+/* ============ 3. 下单条：说明与按钮拉出主次，按钮满宽抱团 ============ */
+.topup-bar {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--rule);
+  align-items: flex-end;
+}
+.topup-notice {
+  max-width: 40em;
+  border-left: 3px solid var(--rule);
+  padding-left: 12px;
+}
+.topup-cta {
+  padding: 13px 34px;
+  font-size: 0.92rem;
+  letter-spacing: 0.16em;
+}
+.topup-cta:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+.topup-error {
+  border-left: 3px solid var(--accent);
+  padding: 6px 12px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  font-weight: 600;
+}
+
+/* 协议行：把勾选框的点击区做大到 32px，行内链接保持朱砂可辨 */
+.agree-row { margin-top: 16px; align-items: center; gap: 10px; font-size: 0.78rem; }
+.agree-row input { width: 17px; height: 17px; margin-top: 0; }
+.agree-link { font-weight: 600; }
+
+/* ============ 4. 收银台：装帧化（题签带 + 关闭钮 + 层级金额） ============
+   ⚠️ .cashier 是三处共用的弹窗壳（墨仓收银台 / 文章打赏 / 个人资料编辑）。
+   本轮只「加」一条题签带，不动壳本身的 padding / 宽度 / 阴影，
+   靠负边距把顶带顶到框边——这样另外两个弹窗不会被本轮改动波及。 */
+.cashier-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: -26px -28px 16px;
+  padding: 13px 18px;
+  border-bottom: 3px double var(--rule-strong);
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+.cashier-top .kicker { font-size: 0.7rem; letter-spacing: 0.22em; margin: 0; }
+.cashier-x {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  font-size: 1.05rem;
+  line-height: 1;
+  color: var(--ink-muted);
+  border: 1px solid var(--rule);
+  transition: color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease),
+    background-color var(--dur-fast) var(--ease);
+}
+.cashier-x:hover { color: var(--paper); background: var(--accent-big); border-color: var(--accent-big); }
+.cashier-x:focus-visible { outline: 2px solid var(--accent-big); outline-offset: 2px; }
+
+.cashier-no {
+  display: block;
+  margin: 0 0 10px;
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.cashier-head {
+  margin: 0 0 18px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--rule);
+  gap: 4px;
+}
+.cashier-title { font-size: 1.02rem; letter-spacing: 0.02em; }
+/* 金额：¥ 降为符号层级，数字撑起视觉重心 */
+.cashier-amount {
+  font-family: var(--serif);
+  font-size: 2.6rem;
+  line-height: 1;
+  color: var(--accent);
+  letter-spacing: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+}
+.cashier-amount i {
+  font-style: normal;
+  font-size: 1.15rem;
+  font-weight: 700;
+  transform: translateY(-0.28em);
+}
+
+/* ============ 5. 支付渠道：从「彩色方块并排」改成竖向砚台抽屉 ============ */
+.pay-channels { grid-template-columns: 1fr; gap: 10px; margin-bottom: 14px; }
+.pay-channel {
+  position: relative;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0 12px;
+  width: 100%;
+  padding: 13px 14px 13px 16px;
+  border: 1px solid var(--rule);
+  background: var(--surface);
+  text-align: left;
+  overflow: hidden;
+  transition: border-color var(--dur-base) var(--ease), box-shadow var(--dur-base) var(--ease),
+    transform var(--dur-base) var(--ease), background-color var(--dur-base) var(--ease);
+}
+/* 渠道色标：只在左侧留一条 3px 细线，把高饱和品牌色压到「提示」而不是「主色」 */
+.pay-channel::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--ink-muted);
+  transition: width var(--dur-base) var(--ease);
+}
+.pay-channel.ch-wechat::before { background: var(--tok-s); }
+.pay-channel.ch-alipay::before { background: var(--tok-f); }
+.pay-channel.single::before { background: var(--accent-big); }
+.pay-channel:hover:not(:disabled) {
+  transform: translateX(3px);
+  border-color: var(--accent-big);
+  box-shadow: 3px 3px 0 color-mix(in srgb, var(--accent-big) 26%, transparent);
+}
+.pay-channel:hover:not(:disabled)::before { width: 5px; }
+.pay-channel:focus-visible { outline: 2px solid var(--accent-big); outline-offset: 2px; }
+.pay-channel:disabled { opacity: 0.6; cursor: wait; }
+
+/* 图标：一律墨块，字反白——不再让品牌色当背景 */
+.ch-ico {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  font-family: var(--serif);
+  font-weight: 700;
+  font-size: 0.98rem;
+  color: var(--paper);
+  background: var(--ink);
+  border-radius: 0;
+}
+.ch-wx, .ch-ali { background: var(--ink); }
+
+.pc-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pc-body b { font-size: 0.9rem; letter-spacing: 0.02em; }
+.pc-body i {
+  font-style: normal;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  color: var(--ink-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 右侧状态签：竖向书写的小标签，替代原先会折成孤字的整句 */
+.pc-state {
+  flex: 0 0 auto;
+  font-family: var(--serif);
+  font-size: 0.64rem;
+  letter-spacing: 0.12em;
+  color: var(--ink-muted);
+  border: 1px solid var(--rule);
+  padding: 3px 7px 2px;
+  white-space: nowrap;
+}
+
+/* 单渠道（扫码页的确认按钮）：修掉 flex 下 grid-template-columns 失效导致的半宽 */
+.pay-channel.single {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  justify-content: stretch;
+  width: 100%;
+  background: var(--accent-big);
+  border-color: var(--accent-big);
+  color: var(--surface);
+}
+.pay-channel.single .ch-ico { background: var(--surface); color: var(--accent-big); }
+.pay-channel.single .pc-body b { color: var(--surface); }
+.pay-channel.single .pc-body i { color: color-mix(in srgb, var(--surface) 82%, transparent); opacity: 1; }
+.pay-channel.single .pc-state {
+  color: var(--surface);
+  border-color: color-mix(in srgb, var(--surface) 55%, transparent);
+}
+.pay-channel.single:hover:not(:disabled) {
+  border-color: var(--accent-big);
+  box-shadow: 3px 3px 0 var(--ink);
+}
+
+/* ============ 6. 二维码：宣纸框 + 四角回纹 + 沙箱印 ============ */
+/* 四角回纹：每个角两段渐变拼成 L 形角标。
+   几何与色值全部存进自定义属性，夜读覆写时整组引用即可。
+   注意：历史层里 body[data-theme="night"] .qr-box 用的是 background 简写，
+   特异性 (0,2,1) 高于 .qr-box (0,1,0)，会把 image/size/position 全部重置成
+   「铺满整块」——所以夜读那条必须把四项都显式写回来。 */
+.qr-box {
+  --qr-corner:
+    linear-gradient(var(--accent-big), var(--accent-big)),
+    linear-gradient(var(--accent-big), var(--accent-big)),
+    linear-gradient(var(--accent-big), var(--accent-big)),
+    linear-gradient(var(--accent-big), var(--accent-big)),
+    linear-gradient(var(--accent-big), var(--accent-big)),
+    linear-gradient(var(--accent-big), var(--accent-big)),
+    linear-gradient(var(--accent-big), var(--accent-big)),
+    linear-gradient(var(--accent-big), var(--accent-big));
+  --qr-size:
+    14px 2px, 2px 14px,
+    14px 2px, 2px 14px,
+    14px 2px, 2px 14px,
+    14px 2px, 2px 14px;
+  --qr-pos:
+    left 8px top 8px, left 8px top 8px,
+    right 8px top 8px, right 8px top 8px,
+    left 8px bottom 8px, left 8px bottom 8px,
+    right 8px bottom 8px, right 8px bottom 8px;
+  gap: 12px;
+  padding: 20px 18px 16px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 0;
+  background-color: #fbf7ec;
+  background-image: var(--qr-corner);
+  background-repeat: no-repeat;
+  background-size: var(--qr-size);
+  background-position: var(--qr-pos);
+  margin-bottom: 14px;
+}
+/* 夜读里二维码框仍用浅纸底（扫码需要浅底），四项背景长写全部写回 */
+body[data-theme="night"] .qr-box {
+  background-color: #efeadb;
+  background-image: var(--qr-corner);
+  background-repeat: no-repeat;
+  background-size: var(--qr-size);
+  background-position: var(--qr-pos);
+}
+/* 框内文字得回到深墨，否则 --ink-muted 翻成浅灰 → 浅底浅字只剩 2.2:1 */
+body[data-theme="night"] .qr-tag {
+  color: #5c554a;
+  border-color: rgba(33, 28, 20, 0.3);
+}
+.qr-box svg {
+  image-rendering: pixelated;
+  width: 100%;
+  max-width: 168px;
+  height: auto;
+  display: block;
+}
+.qr-tag {
+  font-size: 0.66rem;
+  letter-spacing: 0.14em;
+  color: var(--ink-muted);
+  padding: 3px 9px 2px;
+  border: 1px dashed var(--rule);
+}
+
+/* 提示条：与协议行、错误条共用「侧线 + 浅底」的语言 */
+.cashier-note {
+  font-size: 0.7rem;
+  line-height: 1.75;
+  margin-top: 10px;
+}
+.cashier-note.warn {
+  border-left: 3px solid var(--accent-big);
+  padding: 8px 12px;
+  margin: 11px 0 0;
+}
+
+/* 返回 / 取消：保持整行宽度（.cashier-btns 无布局样式，居中定宽会把
+   编辑资料弹窗的「取消 / 保存」拆成不齐的两块），只把它做成明确可点的次级动作 */
+.cashier-close {
+  display: block;
+  width: 100%;
+  margin: 14px 0 0;
+  padding: 10px 18px;
+  font-size: 0.76rem;
+  letter-spacing: 0.14em;
+  color: var(--ink-muted);
+  border: 1px solid var(--rule);
+  transition: color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+}
+.cashier-close:hover { color: var(--accent); border-color: var(--accent); }
+.cashier-close:focus-visible { outline: 2px solid var(--accent-big); outline-offset: 2px; }
+
+/* ============ 7. 到账态：从「一行字」升级成入仓回执 ============ */
+.cashier-done { gap: 12px; padding: 26px 24px 4px; }
+.cashier-done .ink-seal { box-shadow: 3px 3px 0 color-mix(in srgb, var(--ink) 22%, transparent); }
+.cashier-done > b { font-size: 1.35rem; letter-spacing: 0.02em; }
+.done-rows {
+  width: 100%;
+  margin-top: 6px;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+.done-rows > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 2px;
+  font-size: 0.78rem;
+}
+.done-rows > div + div { border-top: 1px dashed var(--rule); }
+.done-rows dt { color: var(--ink-muted); letter-spacing: 0.1em; font-size: 0.72rem; }
+.done-rows dd { font-variant-numeric: tabular-nums; font-weight: 600; }
+.done-no {
+  font-size: 0.64rem;
+  letter-spacing: 0.08em;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.cashier-done button {
+  padding: 10px 34px;
+  margin-top: 4px;
+  transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+}
+.cashier-done button:hover { transform: translateY(-1px); box-shadow: 3px 3px 0 var(--accent-big); }
+
+/* 协议弹窗套用同一套题签带与内缩 */
+/* 协议弹窗：壳 padding 是 20px 22px，负边距按它算 */
+.cashier.agreement .cashier-top { margin: -20px -22px 0; }
+.cashier.agreement .agreement-body { margin: 16px 0 14px; border-top: 0; }
+.cashier.agreement .agreement-acts { margin: 0; }
+
+/* ============ 8. 流水账页：从默认表格改成「出入墨点」条目流 ============ */
+.ledger {
+  border: 2px solid var(--rule-strong);
+  background: var(--surface);
+  padding: 22px 24px 18px;
+}
+.ledger-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+  padding-bottom: 12px;
+  border-bottom: 3px double var(--rule-strong);
+}
+.ledger-head h3 { margin: 0; font-size: 1.16rem; letter-spacing: 0.05em; }
+.ledger-recent { font-size: 0.68rem; letter-spacing: 0.16em; color: var(--ink-muted); }
+
+.ledger-list { list-style: none; }
+.ld-row {
+  display: grid;
+  grid-template-columns: 24px 64px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0 10px;
+  padding: 10px 4px 10px 0;
+  border-bottom: 1px solid var(--rule);
+  transition: background-color var(--dur-fast) var(--ease), padding-left var(--dur-fast) var(--ease);
+}
+.ld-row:hover {
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  padding-left: 8px;
+}
+/* 出入墨点：入 = 实心朱砂，出 = 空心墨线，与全站印章语言一致 */
+.ld-mark {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  font-family: var(--serif);
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1;
+}
+.ld-row.up .ld-mark { color: var(--paper); background: var(--accent-big); }
+.ld-row.down .ld-mark { color: var(--ink-muted); border: 1px solid var(--rule); }
+.ld-amount {
+  font-family: var(--serif);
+  font-size: 0.98rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+.ld-row.up .ld-amount { color: var(--accent); font-weight: 700; }
+.ld-row.down .ld-amount { color: var(--ink-muted); }
+.ld-reason { font-size: 0.84rem; min-width: 0; overflow-wrap: anywhere; }
+.ld-at {
+  font-size: 0.72rem;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ledger-foot {
+  margin-top: 12px;
+  font-size: 0.74rem;
+  letter-spacing: 0.04em;
+  color: var(--ink-muted);
+}
+.ledger-foot b { font-family: var(--serif); color: var(--accent); font-size: 0.9rem; }
+
+/* 空态：一枚「空」印把版式收住，而不是一句飘着的灰字 */
+.ledger-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 34px 16px 26px;
+  text-align: center;
+}
+/* 尺寸用 px 写死，避免 em 相对自身 font-size 缩水（见踩坑记录） */
+.le-seal {
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  font-family: var(--serif);
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--accent);
+  border: 2px solid var(--accent);
+  transform: rotate(-6deg);
+  margin-bottom: 6px;
+}
+.ledger-empty b { font-family: var(--serif); font-size: 1rem; letter-spacing: 0.06em; }
+.ledger-empty p { font-size: 0.8rem; line-height: 1.8; color: var(--ink-muted); max-width: 32em; }
+.le-cta {
+  margin-top: 6px;
+  padding: 9px 24px;
+  font-family: var(--serif);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--paper);
+  background: var(--ink);
+  text-decoration: none;
+  transition: transform var(--dur-fast) var(--ease), background-color var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease);
+}
+.le-cta:hover { background: var(--accent-big); transform: translateY(-2px); box-shadow: 3px 3px 0 var(--rule); }
+.le-cta:focus-visible { outline: 2px solid var(--accent-big); outline-offset: 2px; }
+
+/* ============ 9. 页尾收口：复用热榜/话题页的 .hf-note 与 .hf-acts 与 .hf-cta ============ */
+.points-foot {
+  margin-top: 40px;
+  padding-top: 22px;
+  border-top: 3px double var(--rule-strong);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+/* ============ 10. 夜读模式一致性 ============ */
+body[data-theme="night"] .pack-card.sel { box-shadow: 5px 6px 0 var(--accent-big); }
+body[data-theme="night"] .pack-card:hover { box-shadow: 4px 5px 0 rgba(0, 0, 0, 0.5); }
+body[data-theme="night"] .cashier { box-shadow: 8px 9px 0 rgba(0, 0, 0, 0.5); }
+body[data-theme="night"] .cashier-top { background: color-mix(in srgb, var(--ink) 7%, transparent); }
+body[data-theme="night"] .ch-ico { background: var(--ink); color: #1d1812; }
+body[data-theme="night"] .pay-channel.single .ch-ico { background: #fbf7ec; color: var(--accent-big); }
+body[data-theme="night"] .ld-row.up .ld-mark { color: #1d1812; }
+body[data-theme="night"] .le-cta { color: #1d1812; }
+body[data-theme="night"] .le-cta:hover { background: var(--accent-big); }
+body[data-theme="night"] .pack-tag { color: #1d1812; }
+body[data-theme="night"] .pack-card.sel::after { color: #1d1812; }
+/* 夜读里 --accent 落在 --surface（比 --paper 更亮）上只有 4.45:1，
+   而账本数字与合计都是 15px 级小字，必须让位给稍亮的 --accent-big（≈5.1:1）。 */
+body[data-theme="night"] .ld-row.up .ld-amount,
+body[data-theme="night"] .ledger-foot b { color: var(--accent-big); }
+
+/* ============ 11. 断点：平板收紧 → 手机单列 ============ */
+@media (max-width: 1024px) {
+  .topup-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 640px) {
+  .topup-grid { grid-template-columns: 1fr; gap: 14px; }
+  .pack-card { padding: 18px 16px 16px; }
+  .pack-points { font-size: 1.9rem; }
+  .topup-bar { flex-direction: column; align-items: stretch; gap: 14px; }
+  .topup-notice { max-width: none; }
+  .topup-cta { width: 100%; text-align: center; }
+
+  /* 壳 padding 在手机断点里没变（26px 28px / 协议 20px 22px），只收紧顶带本身 */
+  .cashier-top { margin: -26px -28px 14px; padding: 12px 16px; }
+  .cashier.agreement .cashier-top { margin: -20px -22px 0; }
+  .cashier-amount { font-size: 2.2rem; }
+  .cashier-close { width: 100%; }
+
+  /* 窄屏渠道抽屉：状态签换行到第二行，避免把标题挤断 */
+  .pay-channel { grid-template-columns: 34px minmax(0, 1fr); gap: 0 11px; }
+  .pc-state { grid-column: 2; margin-top: 6px; justify-self: start; }
+  .pay-channel.single { grid-template-columns: 34px minmax(0, 1fr); }
+  .pay-channel.single .pc-state { grid-column: 2; }
+
+  .ledger { padding: 18px 16px 14px; }
+  .ld-row { grid-template-columns: 22px 56px minmax(0, 1fr); gap: 0 8px; }
+  .ld-at { grid-column: 3; font-size: 0.68rem; margin-top: 2px; }
+  .ld-amount { font-size: 0.92rem; }
+  .points-foot { margin-top: 32px; }
+}
+body.m .topup-grid { grid-template-columns: 1fr; gap: 14px; }
+body.m .pack-card { padding: 18px 16px 16px; }
+body.m .pack-points { font-size: 1.9rem; }
+body.m .topup-bar { flex-direction: column; align-items: stretch; gap: 14px; }
+body.m .topup-cta { width: 100%; text-align: center; }
+body.m .cashier-top { margin: -26px -28px 14px; padding: 12px 16px; }
+body.m .cashier.agreement .cashier-top { margin: -20px -22px 0; }
+body.m .cashier-amount { font-size: 2.2rem; }
+body.m .cashier-close { width: 100%; }
+body.m .pay-channel { grid-template-columns: 34px minmax(0, 1fr); gap: 0 11px; }
+body.m .pc-state { grid-column: 2; margin-top: 6px; justify-self: start; }
+body.m .pay-channel.single { grid-template-columns: 34px minmax(0, 1fr); }
+body.m .pay-channel.single .pc-state { grid-column: 2; }
+body.m .ledger { padding: 18px 16px 14px; }
+body.m .ld-row { grid-template-columns: 22px 56px minmax(0, 1fr); gap: 0 8px; }
+body.m .ld-at { grid-column: 3; font-size: 0.68rem; margin-top: 2px; }
+body.m .points-foot { margin-top: 32px; }
+
+/* ============ 12. 骨架屏：按补给站版式占位 ============ */
+.sk-pack { height: 148px; }
+.sk-pack-no { width: 20px; height: 20px; }
+.sk-legend2 { width: 128px; height: 16px; }
+.sk-stat { height: 92px; }
+.sk-cta { width: 176px; height: 44px; }
+.sk-ledger-row { width: 100%; height: 18px; margin-bottom: 14px; }
+.sk-lead { width: 64%; height: 12px; margin-bottom: 10px; }
+
+/* ============ 13. 动效降级 ============ */
+@media (prefers-reduced-motion: reduce) {
+  .pack-card, .pack-meter i, .pack-tag, .pay-channel, .pay-channel::before, .ld-row,
+  .le-cta, .cashier-x, .cashier-done button { transition: none !important; }
+  .pack-card:hover { transform: none; }
+  .pay-channel:hover:not(:disabled) { transform: none; }
+  .ld-row:hover { padding-left: 0; }
+  .pack-card.sel::after { animation: none; }
+}
+
+/* ============================================================
+   v17.4 层：作者主页 /author/[id]「墨者册页」深度打磨
+   目标：把「头卡统计裸排 + 3 列卡片网格（1–2 篇时右侧整块空洞）
+        + 2.6rem 描边序号几乎不可见 + 页尾死白 + 无加载态」
+        换成与 /hot、/tag 同源的册页纸面：墨者题签（头像印 + 墨绩签）、
+        册页双栏（主栏墨轴挂章文章 / 侧栏专栏书脊）、卷末收口、脚注带、
+        印章式空态，并补上加载态骨架屏。
+   纪律：零新增零散色值，全部复用既有 token
+        （ink 墨色 / surface 纸面 / paper 纸底 / accent 朱砂 / rule 界栏
+         / ease 缓动 / dur-fast 与 dur-base 与 dur-slow 时长）。
+        注：注释文本里不可出现「星号紧跟斜杠」，否则会提前闭合注释吞掉下一条规则。
+   顺带：修掉两处已确认的调色板外低对比度（.hotlist .rank.r3 与 .agent-fab 最亮停靠点）。
+   ============================================================ */
+
+/* ============ 1. 墨者题签：头像印 + 名号 + 墨绩签 ============ */
+/* 收窄到 1080：与专栏页同一档，行长可控、题签里的空白也不再被拉长 */
+.author-page { max-width: 1080px; margin-inline: auto; gap: 30px; }
+
+.author-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 34px;
+  row-gap: 22px;
+  align-items: start;
+  padding: 30px 32px;
+  box-shadow: 6px 6px 0 color-mix(in srgb, var(--ink) 7%, transparent);
+}
+/* 左沿的朱砂条改成通高，读作册页的装订边，而不是悬空的短杠 */
+.author-hero::before { inset: 0 auto 0 0; width: 5px; opacity: 1; }
+
+.author-hero-main { flex-direction: row; align-items: flex-start; gap: 22px; }
+.ah-text { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.ah-text .tag-kicker { margin-bottom: 0; }
+
+/* 头像做成方印：硬阴影 + 外圈双线 + 轻微起翘，跟前文的印章语言同源 */
+.author-seal {
+  width: 86px;
+  height: 86px;
+  border-radius: 0;
+  color: var(--paper);
+  background: var(--accent-big);
+  box-shadow: 4px 4px 0 var(--ink);
+  transform: rotate(-3deg);
+  transition: transform var(--dur-base) var(--ease), box-shadow var(--dur-base) var(--ease);
+}
+.author-seal::after {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border: 1px solid color-mix(in srgb, var(--paper) 46%, transparent);
+  pointer-events: none;
+}
+.author-hero:hover .author-seal { transform: rotate(0deg) translateY(-2px); box-shadow: 6px 7px 0 var(--ink); }
+
+.author-name { font-size: 2.14rem; flex-wrap: wrap; gap: 10px; }
+/* 「这是我」从柔和圆角芯片改成小朱砂印：与默认组件长相拉开距离 */
+.author-self {
+  font-family: var(--serif);
+  font-style: normal;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  line-height: 1;
+  color: var(--paper);
+  background: var(--accent);
+  padding: 4px 8px 3px;
+  transform: rotate(-2deg);
+  box-shadow: 2px 2px 0 color-mix(in srgb, var(--ink) 26%, transparent);
+}
+.author-bio { max-width: 40em; font-size: 0.94rem; }
+.author-since {
+  padding-top: 8px;
+  border-top: 1px solid var(--rule);
+  align-self: flex-start;
+  min-width: 168px;
+}
+
+/* 墨绩签：与话题卷宗的数据签共用一个壳，只补作者页需要的栅格与按钮行 */
+.author-plate { min-width: 252px; gap: 6px; }
+.author-figs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px 12px; }
+.author-figs .tp-cell i { white-space: nowrap; }
+
+.author-acts { display: flex; flex-direction: column; gap: 8px; }.author-acts .follow-wrap { display: flex; flex-direction: column; align-items: stretch; gap: 7px; width: 100%; }
+/* 关注是作者页的主行动：把 28px 的小按钮补到可点区域 40px 以上 */
+.author-acts .follow-btn {
+  width: 100%;
+  min-height: 42px;
+  display: grid;
+  place-items: center;
+  padding: 0 14px;
+  font-size: 0.84rem;
+  letter-spacing: 0.08em;
+}
+.author-acts .follow-count { text-align: right; letter-spacing: 0.04em; }
+.author-cta { width: 100%; text-align: center; padding: 12px; font-size: 0.84rem; letter-spacing: 0.08em; }
+
+/* 墨路带：横跨题签两列收口，把名号下方的空白接住，读作册页封面的登记条 */
+.author-ledger {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--rule);
+}
+.al-label { font-size: 0.64rem; letter-spacing: 0.24em; color: var(--ink-muted); white-space: nowrap; }
+.al-cells { display: flex; flex-wrap: wrap; align-items: baseline; min-width: 0; }
+.al-cell { display: flex; align-items: baseline; gap: 7px; }
+.al-cell + .al-cell { border-left: 1px solid var(--rule); margin-left: 22px; padding-left: 22px; }
+.al-cell b {
+  font-family: "Fraunces", var(--serif);
+  font-weight: 900;
+  font-size: 0.98rem;
+  line-height: 1.2;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.al-cell.on b { color: var(--accent); }
+.al-cell i { font-style: normal; font-size: 0.66rem; letter-spacing: 0.08em; color: var(--ink-muted); }
+
+
+/* ============ 2. 册页双栏：主栏文章长卷 + 侧栏专栏书脊 ============ */
+.author-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 322px;
+  column-gap: 44px;
+  row-gap: 40px;
+  align-items: start;
+}
+.author-main { min-width: 0; }
+/* 主栏与侧栏的标题用同一个盒子高度，两条界栏才会落在同一条水平线上 */
+.author-main-head,
+.as-head {
+  box-sizing: border-box;
+  min-height: 76px;
+  align-items: flex-end;
+}
+.author-main-head { padding-top: 0; padding-bottom: 16px; }
+
+/* 主栏条目：复用话题卷宗的墨轴挂章，只调留白与行长 */
+.author-cases .tc-body { padding: 24px 4px 24px 22px; }
+.author-cases .tc-title { font-size: 1.26rem; }
+.author-cases .tc-sum { max-width: 46em; }
+.author-cases .tc-reg i { color: var(--ink-muted); }
+
+/* ============ 3. 侧栏：专栏做成书脊 + 无专栏时的待编签 ============ */
+.author-side { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+/* 长清单时侧栏跟着走，书脊不会在滚动中先消失 */
+.author-side { position: sticky; top: 24px; align-self: start; }
+.as-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 16px;
+  border-bottom: 3px double var(--rule-strong);
+}
+.as-head h2 { font-family: var(--serif); font-weight: 900; font-size: 1.08rem; letter-spacing: 0.04em; }
+.as-head > span {
+  font-size: 0.66rem;
+  letter-spacing: 0.14em;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.author-shelf { display: flex; flex-direction: column; gap: 14px; }
+/* 书脊：方形收口 + 硬阴影 + 顶部朱砂墨条；1 本时也铺满侧栏，不再留 1/3 空洞 */
+.author-shelf .author-spine {
+  position: relative;
+  gap: 9px;
+  padding: 22px 18px 16px;
+  border: 2px solid var(--rule-strong);
+  border-radius: 0;
+  background: var(--surface);
+  box-shadow: 4px 4px 0 color-mix(in srgb, var(--ink) 8%, transparent);
+  transition: transform var(--dur-base) var(--ease), box-shadow var(--dur-base) var(--ease),
+    border-color var(--dur-base) var(--ease);
+}
+.author-shelf .author-spine::before {
+  height: 5px;
+  background: linear-gradient(90deg, var(--accent) 0%, var(--accent-big) 62%, var(--ink) 100%);
+}
+.author-shelf .author-spine:hover {
+  transform: translate(-2px, -2px);
+  border-color: var(--accent-big);
+  box-shadow: 5px 6px 0 color-mix(in srgb, var(--accent-big) 28%, transparent);
+}
+.asc-no {
+  align-self: flex-start;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  font-family: var(--serif);
+  font-style: normal;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--paper);
+  background: var(--accent-big);
+  box-shadow: 2px 2px 0 var(--ink);
+  transform: rotate(-6deg);
+  transition: transform var(--dur-base) var(--ease);
+}
+.author-spine:hover .asc-no { transform: rotate(0deg); }
+.author-side .sc-title { font-size: 1.16rem; }
+.author-side .sc-count { margin-left: 8px; font-size: 0.6rem; }
+.author-side .sc-meta { gap: 6px 10px; }
+
+.author-noseries {
+  display: grid;
+  justify-items: start;
+  gap: 11px;
+  padding: 22px 18px 20px;
+  border: 2px dashed var(--rule);
+}
+.ans-seal {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  font-family: var(--serif);
+  font-size: 0.84rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--accent-big);
+  border: 1px dashed color-mix(in srgb, var(--accent-big) 55%, transparent);
+  transform: rotate(-5deg);
+}
+.author-noseries b { font-family: var(--serif); font-size: 1rem; letter-spacing: 0.04em; }
+.author-noseries p { font-size: 0.8rem; line-height: 1.85; color: var(--ink-muted); }
+.author-noseries .tag-cta { justify-self: stretch; justify-content: center; margin-top: 3px; }
+
+/* ============ 4. 页尾收口：复用热榜/话题页的脚注带语言 ============ */
+.author-foot {
+  margin-top: 8px;
+  padding-top: 22px;
+  border-top: 3px double var(--rule-strong);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+/* ============ 5. 顺带修掉两处调色板外的低对比度 ============ */
+/* 铜牌位的赭金 #b98a2f 落在纸上仅 2.77:1（20.8px 粗体，阈值 3:1），换回朱砂阶梯 */
+.hotlist .rank.r3,
+.author-rank .rank.r3 { color: var(--accent); }
+/* 悬浮墨滴最亮停靠点 #d0684a 压纸白文字只有 3.52:1（16px 需 4.5:1），压深到 4.8:1 */
+.agent-fab { background: radial-gradient(circle at 30% 25%, #c14a1c, var(--accent-big) 55%, #8a3012); }
+
+/* ============ 6. 夜读模式一致性 ============ */
+/* 夜读里 --ink 翻成浅色，硬阴影要换深色，否则印会「浮」在纸面上发光 */
+body[data-theme="night"] .author-hero { box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.38); }
+/* 夜读 accent-big 是亮橙，浅字压上去只有 3.2:1，改用深墨字 */
+body[data-theme="night"] .author-seal { color: #1d1812; box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.45); }
+body[data-theme="night"] .author-hero:hover .author-seal { box-shadow: 6px 7px 0 rgba(0, 0, 0, 0.45); }
+body[data-theme="night"] .author-seal::after { border-color: rgba(29, 24, 18, 0.42); }
+body[data-theme="night"] .asc-no { color: #1d1812; box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.45); }
+body[data-theme="night"] .author-self { color: #1d1812; box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.4); }
+body[data-theme="night"] .author-shelf .author-spine { box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.38); }
+body[data-theme="night"] .author-shelf .author-spine:hover {
+  box-shadow: 5px 6px 0 color-mix(in srgb, var(--accent-big) 42%, transparent);
+}
+body[data-theme="night"] .author-plate { box-shadow: 5px 5px 0 color-mix(in srgb, var(--accent-big) 62%, transparent); }
+/* 夜读里 --accent 压深底只有 4.42:1，换亮一档的 accent-big（与话题页数据签同一处理） */
+body[data-theme="night"] .al-cell.on b { color: var(--accent-big); }
+body[data-theme="night"] .author-plate:hover { box-shadow: 7px 8px 0 color-mix(in srgb, var(--accent-big) 62%, transparent); }
+body[data-theme="night"] .author-noseries { border-color: rgba(232, 224, 207, 0.28); }
+body[data-theme="night"] .author-hero::before { opacity: 0.9; }
+
+/* ============ 7. 断点：平板收紧侧栏 → 手机折叠为单列 ============ */
+@media (max-width: 1120px) {
+  .author-body { grid-template-columns: minmax(0, 1fr) 286px; column-gap: 32px; }
+  .author-plate { min-width: 232px; }
+}
+@media (max-width: 920px) {
+  .author-body { grid-template-columns: minmax(0, 1fr); row-gap: 34px; }
+  .author-side { position: static; max-width: none; }
+  .author-shelf { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+}
+@media (max-width: 760px) {
+  .author-hero { grid-template-columns: minmax(0, 1fr); padding: 24px 20px 22px; row-gap: 18px; }
+  .author-plate { min-width: 0; transform: none; box-shadow: 4px 4px 0 var(--accent-big); }
+  .author-plate:hover { transform: translateY(-2px); }
+  .author-figs { gap: 8px 14px; }
+  .author-ledger { grid-template-columns: minmax(0, 1fr); gap: 10px; align-items: start; }
+  .al-cells { flex-direction: column; gap: 8px; }
+  .al-cell + .al-cell { border-left: 0; margin-left: 0; padding-left: 0; }
+  .author-foot { margin-top: 4px; }
+}
+@media (max-width: 640px) {
+  .author-page { gap: 24px; }
+  .author-hero-main { flex-direction: column; gap: 16px; }
+  .author-seal { width: 66px; height: 66px; font-size: 1.52rem; box-shadow: 3px 3px 0 var(--ink); }
+  .author-name { font-size: 1.66rem; line-height: 1.16; }
+  .author-since { min-width: 0; }
+  .author-main-head { padding-bottom: 12px; }
+  .author-main-head,
+  .as-head { min-height: 62px; }
+  .author-main-head h2 { font-size: 1.28rem; }
+  .author-cases .tc-body { padding: 20px 0 20px 16px; }
+  .author-cases .tc-title { font-size: 1.14rem; }
+  .author-body { row-gap: 30px; }
+  .author-shelf { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ============ 8. 骨架屏：按册页版式占位 ============ */
+.sk-seal-xl { width: 86px; height: 86px; flex: 0 0 auto; }
+.sk-headtitle { width: 132px; height: 22px; }
+.sk-spine { width: 100%; height: 152px; }
+.sk-ledger { grid-column: 1 / -1; width: 100%; height: 14px; }
+
+/* ============ 9. 动效降级 ============ */
+@media (prefers-reduced-motion: reduce) {
+  .author-seal,
+  .author-shelf .author-spine,
+  .asc-no,
+  .author-acts .follow-btn { transition: none !important; }
+  .author-hero:hover .author-seal { transform: rotate(-3deg); }
+  .author-shelf .author-spine:hover { transform: none; }
+  .author-spine:hover .asc-no { transform: rotate(-6deg); }
+}
+
+/* ============ 10. 顺手修掉的窄屏溢出：首页 @360 横向滚动 ============ */
+/* 成因：@media(max-width:1020px) 里 .home-top 写成 grid-template-columns: 1fr，
+   而 1fr 的最小尺寸是 auto（= 该项的 max-content）。.hero-stats 四个统计块的
+   max-content 是 355px，超过 360 视口下的可用宽度 332px，于是轨道被撑到 370px，
+   整列跟着越界，文档 scrollWidth 变 384。改成 minmax(0, 1fr) 并允许统计块换行。 */
+@media (max-width: 1020px) {
+  /* 必须写成 body.m .home-top：手机版的 body.m 覆写特异性 (0,2,1) 高于单类选择器 */
+  .home-top,
+  body.m .home-top { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 420px) {
+  .hero-stats { flex-wrap: wrap; gap: 10px 20px; }
+}
+
+/* ============ 11. 顺手修掉的夜读对比度缺口（全站共用组件） ============ */
+/* 榜位 r1/r2 仍是调色板外的硬编码色，夜读纸底上 r1 只有 2.98:1（20.8px 粗体，阈值 3:1）。 */
+body[data-theme="night"] .hotlist .rank.r1,
+body[data-theme="night"] .author-rank .rank.r1,
+body[data-theme="night"] .hotlist .rank.r2,
+body[data-theme="night"] .author-rank .rank.r2 { color: var(--accent-big); }
+
+/* 悬浮墨滴：夜读里 --surface 会翻成深色，而渐变远端是 #8a3012，
+   深字压深底只有 1.94:1（16px 需 4.5:1）。夜读把渐变整体抬亮并锁死深墨字，
+   最暗停靠点也回到 6.2:1；亮色模式不受影响。 */
+body[data-theme="night"] .agent-fab {
+  color: #1d1812;
+  background: radial-gradient(circle at 30% 25%, #f6a37c, #e2804f 55%, #e8865c);
+}
+body[data-theme="night"] .agent-fab .fab-drop { filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35)); }
+
+/* 夜读下 .hero-cta 被写死 #fff，压在 accent-big(#e0703f) 上只有 3.20:1（16px 需 4.5:1），
+   换成深墨字回到 5.06:1。.ghost 变体是深纸底（--paper 夜读 = #1c1913），必须排除，
+   否则浅底浅字会反过来掉到 1:1——包括它的 hover 态（背景是 --surface #242018，同样深）。 */
+body[data-theme="night"] .hero-cta:not(.ghost),
+body[data-theme="night"] .search-form.big button { color: #1d1812; }
+/* ============================================================
+   v17.5 层：专栏详情 /series/[id]「开卷」深度打磨
+   目标：把「外色系鎏金打包盒（#caa14a/#8a5a12 一路，离开墨纸色板）
+        + 细分隔线的默认篇目行 + 页尾大片死白 + 无加载态」
+        换成与 /hot、/tag、/author 同源的卷宗纸面：
+        卷首题签（著者名号 + 卷宗登记签与可读进度尺）、
+        墨纸朱砂的整卷「一口价」契约条、墨轴挂章的卷目（壹贰叁 + 登记号 + 锁标）、
+        卷末收口、脚注带三条去路、印章式空态，并补上加载态骨架屏。
+   纪律：零新增零散色值，全部复用既有 token
+        （ink 墨色 / ink-muted 次级墨灰 / surface 纸面 / paper 纸底 /
+         accent 朱砂小字 / accent-big 朱砂大字 / rule 界栏 /
+         ease 缓动 / dur-fast 与 dur-base 与 dur-slow 时长）。
+        注：注释文本里不可出现「星号紧跟斜杠」，否则会提前闭合注释吞掉下一条规则。
+   说明：`.sl-*` 一族的旧样式已不再被本页引用（JSX 已整体换新），保留在 v12 层备查。
+   ============================================================ */
+
+/* ============ 1. 卷首题签：题名 + 著者名号 + 卷宗登记签 ============ */
+/* 收窄到 940：打包契约与卷目都需要一条能读完全的短行 */
+.series-landing {
+  max-width: 940px;
+  padding-top: 44px;
+  padding-bottom: 46px;
+}
+
+.series-landing .sd-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 30px;
+  row-gap: 20px;
+  align-items: start;
+  padding-bottom: 20px;
+  border-bottom: 3px double var(--rule-strong);
+}
+.sd-head-main { min-width: 0; }
+
+.sd-kicker {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.26em;
+  color: var(--accent);
+  margin-bottom: 9px;
+}
+.sd-kicker-lat {
+  font-family: "Fraunces", var(--serif);
+  font-size: 0.62rem;
+  letter-spacing: 0.22em;
+}
+.sd-kicker i { font-style: normal; color: var(--ink-muted); letter-spacing: 0.1em; }
+.sd-kicker .sd-author {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 2px solid color-mix(in srgb, var(--accent-big) 42%, transparent);
+  padding-bottom: 1px;
+  letter-spacing: 0.06em;
+  transition: color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+}
+.sd-kicker .sd-author:hover { color: var(--accent-big); border-bottom-color: var(--accent-big); }
+
+.sd-title {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px;
+  font-family: var(--serif);
+  font-size: clamp(1.92rem, 4.4vw, 2.68rem);
+  font-weight: 900;
+  line-height: 1.14;
+  letter-spacing: 0.03em;
+  color: var(--ink);
+}
+/* 书名号做成朱砂装饰，与题名形成一层色彩对比，但不抢读 */
+.sd-title .sd-quote {
+  color: var(--accent-big);
+  font-size: 0.72em;
+  font-weight: 400;
+  opacity: 0.72;
+}
+.sd-title .sd-name { min-width: 0; overflow-wrap: anywhere; }
+
+.sd-sub {
+  margin-top: 11px;
+  font-size: 0.86rem;
+  line-height: 1.85;
+  color: var(--ink-muted);
+  max-width: 34em;
+}
+
+/* 名号条：头像做成小方印，数据用「非零加粗转墨色」的层级做法 */
+.sd-strip {
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  font-size: 0.73rem;
+  color: var(--ink-muted);
+}
+.sd-ava {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  font-family: var(--serif);
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--paper);
+  background: var(--accent-big);
+  transform: rotate(-4deg);
+  box-shadow: 2px 2px 0 color-mix(in srgb, var(--ink) 30%, transparent);
+  transition: transform var(--dur-base) var(--ease);
+}
+.sd-strip:hover .sd-ava { transform: rotate(0deg); }
+.sd-byline b { color: var(--ink); font-weight: 700; }
+.sd-sep { width: 1px; height: 12px; background: var(--rule); }
+.sd-count b { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ink-muted); }
+.sd-count.on b { color: var(--ink); }
+
+/* 卷宗登记签：压着朱砂硬阴影的一枚登记签，hover 时扶正并抬起 */
+.series-landing .sd-plate {
+  position: relative;
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 15px 16px 14px;
+  background: var(--surface);
+  border: 2px solid var(--rule-strong);
+  box-shadow: 5px 5px 0 var(--accent-big);
+  transform: rotate(-1deg);
+  transition: transform var(--dur-base) var(--ease), box-shadow var(--dur-base) var(--ease);
+}
+.series-landing .sd-plate::before {
+  content: "";
+  position: absolute;
+  inset: -2px -2px auto -2px;
+  height: 4px;
+  background: var(--accent-big);
+}
+.series-landing .sd-plate:hover { transform: rotate(0deg) translateY(-2px); box-shadow: 7px 8px 0 var(--accent-big); }
+
+.sd-plabel { font-size: 0.6rem; letter-spacing: 0.26em; color: var(--ink-muted); }
+.sd-total { display: flex; align-items: baseline; gap: 5px; }
+.sd-total b {
+  font-family: "Fraunces", var(--serif);
+  font-weight: 900;
+  font-size: 2rem;
+  line-height: 1.02;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.sd-total i { font-family: var(--serif); font-style: normal; font-size: 0.78rem; font-weight: 700; }
+.sd-prule { height: 1px; background: var(--rule); margin: 3px 0 6px; }
+
+/* 可读进度尺：把「这一卷你能读几篇」做成一条墨尺，零查询、由已加载列表聚合 */
+.sd-gauge { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 9px; }
+.sd-gauge-label { font-size: 0.6rem; letter-spacing: 0.2em; color: var(--ink-muted); white-space: nowrap; }
+.sd-gauge-bar {
+  position: relative;
+  height: 5px;
+  background: color-mix(in srgb, var(--ink) 12%, transparent);
+  overflow: hidden;
+}
+.sd-gauge-bar i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: linear-gradient(90deg, var(--accent) 0%, var(--accent-big) 100%);
+  transition: width var(--dur-slow) var(--ease);
+}
+.sd-gauge-num {
+  font-family: "Fraunces", var(--serif);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.sd-gauge-num em { font-style: normal; color: var(--ink-muted); font-size: 0.86em; }
+
+.sd-figs { display: flex; gap: 18px; margin-top: 1px; }
+.sd-cell { display: flex; flex-direction: column; gap: 1px; }
+/* 零值不靠降低透明度弱化（小字会跌破 4.5:1），改成「有值转墨色 / 零值留弱灰」 */
+.sd-cell b {
+  font-family: "Fraunces", var(--serif);
+  font-weight: 900;
+  font-size: 0.96rem;
+  line-height: 1.15;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+.sd-cell.on b { color: var(--accent); }
+.sd-cell i { font-style: normal; font-size: 0.6rem; letter-spacing: 0.06em; color: var(--ink-muted); }
+
+/* ============ 2. 整卷一口价契约条：把鎏金整组换回墨纸朱砂 ============ */
+.series-landing .bundle-box {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 268px;
+  column-gap: 28px;
+  row-gap: 14px;
+  align-items: start;
+  margin: 30px 0 0;
+  padding: 24px 24px 20px;
+  border: 2px solid var(--rule-strong);
+  border-radius: 0;
+  background: var(--surface);
+  box-shadow: 5px 5px 0 var(--accent-big);
+  overflow: visible;
+}
+/* 右上角那枚「打包」签到改为压在上沿的朱砂小印，与页面上其它印章同一套语言 */
+.series-landing .bundle-box::before {
+  content: "打包";
+  position: absolute;
+  top: -12px;
+  left: 22px;
+  /* 旧层（v12.9）写的是 right:14px，不显式清掉的话 left+right 会把签到拉成通栏一条 */
+  right: auto;
+  font-family: var(--serif);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-indent: 0.2em;
+  padding: 3px 11px 3px 13px;
+  color: var(--paper);
+  background: var(--accent-big);
+  transform: rotate(-2deg);
+  box-shadow: 2px 2px 0 color-mix(in srgb, var(--ink) 30%, transparent);
+  /* 旧层（v12.9）的圆角胶囊与鎏金底必须显式清掉，否则会盖住这一层的实心朱砂 */
+  border: 0;
+  border-radius: 0;
+}
+.bb-left { min-width: 0; }
+.bb-kicker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  color: var(--accent);
+}
+.bb-kicker .bb-lat { font-family: "Fraunces", var(--serif); font-size: 0.6rem; letter-spacing: 0.2em; }
+.bb-kicker em { font-style: normal; color: var(--ink-muted); letter-spacing: 0.1em; }
+.bb-title {
+  display: block;
+  font-family: var(--serif);
+  font-size: 1.32rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+}
+/* 热度不再用 ▲ 图形，改成一枚「热」小印，避免 emoji 感 */
+.bb-heat {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 9px 0 0;
+  font-size: 0.76rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--accent);
+}
+.bb-heat b { font-variant-numeric: tabular-nums; font-weight: 900; }
+.bb-mark {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  font-family: var(--serif);
+  font-style: normal;
+  font-size: 0.6rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--paper);
+  background: var(--accent);
+  transform: rotate(-5deg);
+  box-shadow: 1px 1px 0 color-mix(in srgb, var(--ink) 26%, transparent);
+}
+.bb-desc {
+  margin: 11px 0 0;
+  font-size: 0.8rem;
+  line-height: 1.88;
+  color: var(--ink-muted);
+  max-width: 40em;
+}
+.bb-desc b { color: var(--ink); font-variant-numeric: tabular-nums; font-weight: 700; }
+
+/* 右侧落款区：一块内嵌的「价签」，把价格与行动收在一个明确的盒子里 */
+.bb-deal {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px 15px;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+}
+.bb-deal-label { font-size: 0.6rem; letter-spacing: 0.24em; color: var(--ink-muted); }
+.bb-price {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-family: "Fraunces", var(--serif);
+  font-weight: 900;
+  font-size: 1.96rem;
+  line-height: 1.1;
+  letter-spacing: 0.01em;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.bb-price i {
+  font-family: var(--serif);
+  font-style: normal;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--ink-muted);
+  letter-spacing: 0.06em;
+}
+.bb-price s.bb-orig {
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--ink-muted);
+  text-decoration-thickness: 1px;
+  /* 旧层的 margin-right:10px 与 opacity:.7 会叠加，opacity 会把小字压到 4.5:1 以下 */
+  margin-right: 0;
+  opacity: 1;
+}
+/* 立省从金渐变胶囊改成斜压的朱砂小印 */
+.bb-save {
+  align-self: flex-start;
+  font-family: var(--serif);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  padding: 3px 9px;
+  color: var(--paper);
+  background: var(--accent);
+  transform: rotate(-2deg);
+  box-shadow: 2px 2px 0 color-mix(in srgb, var(--ink) 24%, transparent);
+  border: 0;
+  border-radius: 0;
+}
+/* 主行动：实心朱砂 + 硬阴影，与 .tag-cta / .series-cta 同一套按钮语言 */
+.bb-btn {
+  margin-top: 4px;
+  margin-left: 0;
+  width: 100%;
+  min-height: 44px;
+  display: inline-grid;
+  place-items: center;
+  padding: 11px 16px;
+  font-family: var(--serif);
+  font-size: 0.88rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--paper);
+  background: var(--accent-big);
+  border: 0;
+  border-radius: 0;
+  cursor: pointer;
+  text-decoration: none;
+  transition: transform var(--dur-base) var(--ease), box-shadow var(--dur-base) var(--ease),
+    background var(--dur-base) var(--ease);
+}
+.bb-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 4px 5px 0 color-mix(in srgb, var(--ink) 34%, transparent);
+}
+.bb-btn:disabled { opacity: 0.62; cursor: not-allowed; transform: none; box-shadow: none; }
+.bb-btn:focus-visible { outline: 2px solid var(--accent-big); outline-offset: 3px; }
+.bb-balance {
+  margin: 2px 0 0;
+  font-size: 0.7rem;
+  line-height: 1.6;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+.bb-balance b { color: var(--ink); font-weight: 700; }
+.bb-topup { color: var(--accent); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+.bb-topup:hover { color: var(--accent-big); }
+.bb-share { color: var(--ink-muted); }
+
+/* 已打包入手：从鎏金虚线块改成一条墨线收口的账面记录 */
+.series-landing .sd-owned {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 22px 0 0;
+  padding: 11px 16px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-left: 4px solid var(--accent-big);
+}
+.sd-owned i { font-style: normal; color: var(--accent-big); }
+
+/* ============ 3. 卷目：墨轴挂章 + 登记号 + 锁标 ============ */
+.series-landing .sd-dossier { margin-top: 30px; }
+.sd-dossier-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 13px;
+  margin-bottom: 4px;
+  border-bottom: 3px double var(--rule-strong);
+}
+.sd-dossier-head h2 {
+  font-family: var(--serif);
+  font-size: 1.14rem;
+  font-weight: 900;
+  letter-spacing: 0.2em;
+}
+.sd-dossier-note {
+  font-size: 0.66rem;
+  letter-spacing: 0.12em;
+  color: var(--ink-muted);
+  text-align: right;
+}
+
+.sd-list { list-style: none; margin: 0; padding: 0; }
+.sd-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 50px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 16px;
+}
+
+/* 墨轴：贯穿整卷的竖线，章号挂在轴上，读作「第几篇已订入」 */
+.sd-axis { position: relative; display: flex; justify-content: center; align-self: stretch; padding-top: 22px; }
+.sd-axis::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  margin-left: -1px;
+  background: color-mix(in srgb, var(--ink) 16%, transparent);
+}
+.sd-row:first-child .sd-axis::before { top: 26px; }
+
+.sd-no {
+  position: relative;
+  z-index: 1;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  font-family: var(--serif);
+  font-style: normal;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--ink-muted);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  transition: transform var(--dur-base) var(--ease), box-shadow var(--dur-base) var(--ease),
+    background var(--dur-base) var(--ease), border-color var(--dur-base) var(--ease), color var(--dur-base) var(--ease);
+}
+/* 锁着的篇目：章号直接做成实心朱砂印，一眼看出「这一篇要解锁」 */
+.sd-row.locked .sd-no {
+  background: var(--accent-big);
+  border-color: var(--accent-big);
+  color: var(--paper);
+  box-shadow: 2px 2px 0 color-mix(in srgb, var(--ink) 30%, transparent);
+}
+
+.sd-body {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  padding: 18px 4px 18px 20px;
+  border-bottom: 1px solid var(--rule);
+  transition: background var(--dur-base) var(--ease);
+}
+/* 悬停：左沿起一道朱砂竖线，像被指尖按住 */
+.sd-body::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 13px;
+  bottom: 13px;
+  width: 3px;
+  background: var(--accent-big);
+  transform: scaleY(0);
+  transform-origin: center;
+  transition: transform var(--dur-base) var(--ease);
+}
+.sd-row:hover .sd-body { background: var(--surface); }
+.sd-row:hover .sd-body::before { transform: scaleY(1); }
+.sd-row:hover .sd-no {
+  background: var(--accent-big);
+  border-color: var(--accent-big);
+  color: var(--paper);
+  box-shadow: 3px 3px 0 color-mix(in srgb, var(--ink) 30%, transparent);
+  transform: rotate(-5deg);
+}
+
+/* 登记号：Fraunces 数字配小字距，弱化但不降对比度 */
+.sd-reg {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: "Fraunces", var(--serif);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+.sd-reg i { font-style: normal; font-weight: 400; letter-spacing: 0.16em; }
+.sd-reg em { font-style: normal; opacity: 0.6; }
+
+.sd-rtitle {
+  font-family: var(--serif);
+  font-size: 1.16rem;
+  font-weight: 700;
+  line-height: 1.42;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+  text-decoration: none;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.sd-row:hover .sd-rtitle,
+.sd-rtitle:hover {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-color: var(--accent-big);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 5px;
+}
+.sd-rtitle:focus-visible,
+.sd-kicker .sd-author:focus-visible,
+.sd-cta:focus-visible,
+.bb-btn:focus-visible,
+.bb-topup:focus-visible,
+.sd-foot .hf-cta:focus-visible {
+  outline: 2px solid var(--accent-big);
+  outline-offset: 3px;
+}
+
+.sd-meta { font-size: 0.7rem; color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+.sd-meta b { color: var(--ink); font-weight: 700; }
+
+/* 锁标：方形角标，三种状态（锁 / 已解锁 / 免费）各有独立语义，不再靠圆角胶囊 */
+.sd-lock {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  align-self: center;
+  font-family: var(--serif);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 5px 10px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent-big) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-big) 46%, transparent);
+  transition: background var(--dur-base) var(--ease), transform var(--dur-base) var(--ease);
+}
+.sd-lock i { font-style: normal; font-size: 0.62rem; letter-spacing: 0.04em; }
+.sd-row:hover .sd-lock { background: color-mix(in srgb, var(--accent-big) 18%, transparent); }
+.sd-lock.owned {
+  color: var(--ink-muted);
+  background: transparent;
+  border-color: var(--rule);
+}
+.sd-lock.free {
+  color: var(--ink-muted);
+  background: transparent;
+  border-style: dashed;
+  border-color: var(--rule);
+  letter-spacing: 0.16em;
+}
+
+/* ============ 4. 卷末收口：给这一卷一个明确终点 ============ */
+.sd-end {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  padding-top: 24px;
+}
+.sd-end-line { height: 1px; background: var(--rule); }
+.sd-end b {
+  font-family: var(--serif);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  text-indent: 0.24em;
+  color: var(--ink-muted);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  padding: 5px 13px;
+  transform: rotate(-1.5deg);
+}
+
+/* ============ 5. 脚注带：把页尾那块死白换成三条去路 ============ */
+.series-landing .sd-foot {
+  margin-top: 34px;
+  padding-top: 22px;
+  border-top: 3px double var(--rule-strong);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+/* ============ 6. 空态：一枚印章把页面收住，而不是一块虚线死白 ============ */
+.series-landing .sd-empty {
+  margin-top: 8px;
+  border: 0;
+  padding: 42px 20px 34px;
+  display: grid;
+  justify-items: center;
+  gap: 13px;
+  text-align: center;
+  color: var(--ink-muted);
+}
+.sd-eseal {
+  width: 60px;
+  height: 60px;
+  display: grid;
+  place-items: center;
+  font-family: var(--serif);
+  font-size: 1.42rem;
+  font-weight: 700;
+  color: var(--accent-big);
+  border: 2px solid var(--accent-big);
+  box-shadow: 3px 3px 0 color-mix(in srgb, var(--accent-big) 26%, transparent);
+  transform: rotate(-5deg);
+}
+.series-landing .sd-empty b {
+  font-family: var(--serif);
+  font-size: 1.06rem;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+}
+.sd-empty p { font-size: 0.84rem; line-height: 1.9; max-width: 34em; }
+.sd-steps {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 7px;
+  text-align: left;
+  max-width: 40em;
+  counter-reset: sd-step;
+}
+.sd-steps li {
+  position: relative;
+  font-size: 0.82rem;
+  line-height: 1.8;
+  color: var(--ink-muted);
+  padding-left: 26px;
+}
+.sd-steps li::before {
+  counter-increment: sd-step;
+  content: counter(sd-step, cjk-ideographic);
+  position: absolute;
+  left: 0;
+  top: 2px;
+  width: 17px;
+  height: 17px;
+  display: grid;
+  place-items: center;
+  font-family: var(--serif);
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent-big) 45%, transparent);
+}
+.sd-cta {
+  margin-top: 5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 11px 20px;
+  font-family: var(--serif);
+  font-size: 0.88rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--paper);
+  background: var(--accent-big);
+  text-decoration: none;
+  transition: transform var(--dur-base) var(--ease), box-shadow var(--dur-base) var(--ease);
+}
+.sd-cta:hover { transform: translateY(-2px); box-shadow: 4px 5px 0 color-mix(in srgb, var(--ink) 34%, transparent); }
+
+/* ============ 7. 加载态骨架屏：补齐「开卷」版式需要的尺寸 ============ */
+.sk-strip { width: 216px; height: 12px; margin-top: 14px; }
+.sk-gauge { width: 100%; height: 7px; }
+/* 题签里的占位行要跟真实正文一样收在 34em 内，否则加载完会「缩一下」 */
+.sd-head-main .sk-line { max-width: 34em; }
+/* 契约条骨架沿用真实两栏壳，只把内边距压一点，加载完高度基本对得上 */
+.series-landing .bundle-box .bb-deal .sk-cta { width: 100%; height: 44px; }
+
+/* ============ 8. 夜读模式一致性 ============ */
+/* 夜读里 --ink 翻成浅色，硬阴影必须换深色，否则印会「浮」在纸面上发光 */
+body[data-theme="night"] .series-landing .sd-plate {
+  box-shadow: 5px 5px 0 color-mix(in srgb, var(--accent-big) 62%, transparent);
+}
+body[data-theme="night"] .series-landing .sd-plate:hover {
+  box-shadow: 7px 8px 0 color-mix(in srgb, var(--accent-big) 62%, transparent);
+}
+body[data-theme="night"] .series-landing .bundle-box {
+  background: var(--surface);
+  box-shadow: 5px 5px 0 color-mix(in srgb, var(--accent-big) 62%, transparent);
+}
+body[data-theme="night"] .series-landing .bundle-box::before { color: #1d1812; box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.4); }
+body[data-theme="night"] .sd-ava { color: #1d1812; box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.42); }
+body[data-theme="night"] .bb-save { color: #1d1812; box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.4); }
+body[data-theme="night"] .bb-mark { color: #1d1812; box-shadow: 1px 1px 0 rgba(0, 0, 0, 0.4); }
+body[data-theme="night"] .bb-deal { background: var(--paper); border-color: var(--rule); }
+body[data-theme="night"] .sd-eseal { box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.45); }
+/* 夜读里 --accent 落在深纸上只有 4.42:1，小字与数字统一抬到 accent-big（与话题/作者页同处理） */
+body[data-theme="night"] .sd-total b,
+body[data-theme="night"] .sd-cell.on b,
+body[data-theme="night"] .bb-price,
+body[data-theme="night"] .sd-kicker,
+body[data-theme="night"] .sd-kicker .sd-author,
+body[data-theme="night"] .bb-kicker,
+body[data-theme="night"] .bb-heat,
+body[data-theme="night"] .sd-lock { color: var(--accent-big); }
+/* 朱砂实心块上的文字：夜读 accent-big 是亮橙，浅字压上去只有 3.2:1，改深墨字 */
+body[data-theme="night"] .bb-btn,
+body[data-theme="night"] .sd-cta,
+body[data-theme="night"] .sd-no,
+body[data-theme="night"] .sd-row.locked .sd-no,
+body[data-theme="night"] .sd-row:hover .sd-no { color: #1d1812; }
+/* 旧层把夜读的 .bb-btn 改成金渐变（特异性 0,2,1），这里必须把底一并写回朱砂 */
+body[data-theme="night"] .bb-btn { background: var(--accent-big); }
+body[data-theme="night"] .bb-btn:hover:not(:disabled),
+body[data-theme="night"] .sd-cta:hover { box-shadow: 4px 5px 0 rgba(0, 0, 0, 0.45); }
+body[data-theme="night"] .sd-row:hover .sd-no { box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.45); }
+body[data-theme="night"] .sd-row.locked .sd-no { box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.45); }
+body[data-theme="night"] .sd-axis::before { background: rgba(232, 224, 207, 0.2); }
+body[data-theme="night"] .sd-lock { background: color-mix(in srgb, var(--accent-big) 16%, transparent); }
+body[data-theme="night"] .sd-lock.owned,
+body[data-theme="night"] .sd-lock.free { background: transparent; color: var(--ink-muted); }
+
+/* ============ 9. 断点：平板收窄契约条 → 手机单列、墨轴收窄 ============ */
+@media (max-width: 1020px) {
+  .series-landing .bundle-box { grid-template-columns: minmax(0, 1fr) 240px; column-gap: 22px; }
+  .series-landing .sd-plate { min-width: 224px; }
+}
+@media (max-width: 860px) {
+  .series-landing .sd-head { grid-template-columns: minmax(0, 1fr); row-gap: 18px; }
+  .series-landing .sd-plate { min-width: 0; width: 100%; transform: none; box-shadow: 4px 4px 0 var(--accent-big); }
+  .series-landing .sd-plate:hover { transform: translateY(-2px); }
+  .series-landing .bundle-box { grid-template-columns: minmax(0, 1fr); row-gap: 16px; }
+  .sd-end { padding-top: 20px; }
+  .sd-foot .hf-acts { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 700px) {
+  .series-landing { padding-top: 22px; }
+  .sd-title { font-size: 1.72rem; line-height: 1.2; }
+  .sd-sub { font-size: 0.82rem; }
+  .sd-dossier-head h2 { font-size: 1.04rem; letter-spacing: 0.16em; }
+  .sd-row { grid-template-columns: 38px minmax(0, 1fr) auto; column-gap: 11px; }
+  .sd-axis { padding-top: 17px; }
+  .sd-no { width: 28px; height: 28px; font-size: 0.78rem; }
+  .sd-row:first-child .sd-axis::before { top: 21px; }
+  .sd-body { padding: 15px 2px 15px 13px; }
+  .sd-body::before { top: 11px; bottom: 11px; }
+  .sd-rtitle { font-size: 1.04rem; }
+  /* 「锁」字保留：窄屏只收窄内距与字距，不要为了省 10px 把语义删掉 */
+  .sd-lock { font-size: 0.62rem; padding: 4px 8px; gap: 4px; letter-spacing: 0.03em; }
+  .sk-strip { width: 168px; }
+  .sd-foot { margin-top: 30px; }
+}
+/* 手机版（body.m）横向 padding 已在 v16 归零，这里只保证墨轴不挤正文 */
+body.m .series-landing .sd-row { grid-template-columns: 34px minmax(0, 1fr) auto; column-gap: 10px; }
+body.m .series-landing .sd-no { width: 26px; height: 26px; font-size: 0.74rem; }
+body.m .series-landing .sd-axis { padding-top: 15px; }
+body.m .series-landing .sd-row:first-child .sd-axis::before { top: 19px; }
+body.m .series-landing .sd-body { padding: 14px 2px 14px 12px; }
+body.m .series-landing .sd-rtitle { font-size: 1.02rem; }
+
+/* ============ 10. 动效降级 ============ */
+@media (prefers-reduced-motion: reduce) {
+  .series-landing .sd-plate,
+  .sd-ava,
+  .sd-no,
+  .sd-body,
+  .sd-body::before,
+  .bb-btn,
+  .sd-cta,
+  .sd-gauge-bar i { transition: none !important; }
+  .series-landing .sd-plate:hover { transform: rotate(-1deg); }
+  .sd-row:hover .sd-no { transform: none; }
+  .bb-btn:hover:not(:disabled),
+  .sd-cta:hover { transform: none; }
+}
+
+/* ============================================================
+   v17.6 层：印章工坊（/me 资料编辑重做）+ 全站印章头像
+   - 印泥色板 avt-*：日/夜双套，色名取传统矿物/印泥色
+   - 印式 avs-*：圆章（默认无 class）/ 方章 / 阳文（描边）
+   - 工坊模态：大印预览 + 全站场景所见即所得 + 印文格 + 印泥 + 印式
+   ============================================================ */
+
+/* —— 印泥色（日间）—— */
+.avatar.avt-ink    { --avt-c: #211C14; --avt-fg: #F6F1E7; background: var(--avt-c); color: var(--avt-fg); }
+.avatar.avt-zhusha { --avt-c: #C2401A; --avt-fg: #FBF2E8; background: var(--avt-c); color: var(--avt-fg); }
+.avatar.avt-dailan { --avt-c: #2E4E6E; --avt-fg: #F2F5F0; background: var(--avt-c); color: var(--avt-fg); }
+.avatar.avt-zhuqing{ --avt-c: #3E6B4F; --avt-fg: #F2F6EF; background: var(--avt-c); color: var(--avt-fg); }
+.avatar.avt-zheshi { --avt-c: #96632B; --avt-fg: #FAF3E6; background: var(--avt-c); color: var(--avt-fg); }
+.avatar.avt-zitang { --avt-c: #5D3A6B; --avt-fg: #F6F1F4; background: var(--avt-c); color: var(--avt-fg); }
+.avatar.avt-yanzhi { --avt-c: #A03448; --avt-fg: #FAEFF0; background: var(--avt-c); color: var(--avt-fg); }
+
+/* —— 印泥色（夜间：提亮保对比）—— */
+body[data-theme="night"] .avatar.avt-ink    { --avt-c: #E8DFCE; --avt-fg: #1C1812; }
+body[data-theme="night"] .avatar.avt-zhusha { --avt-c: #D4552C; --avt-fg: #1C1812; }
+body[data-theme="night"] .avatar.avt-dailan { --avt-c: #5B84AB; --avt-fg: #14181D; }
+body[data-theme="night"] .avatar.avt-zhuqing{ --avt-c: #5F8F72; --avt-fg: #131A15; }
+body[data-theme="night"] .avatar.avt-zheshi { --avt-c: #B57F42; --avt-fg: #1A140C; }
+body[data-theme="night"] .avatar.avt-zitang { --avt-c: #82589A; --avt-fg: #17121B; }
+body[data-theme="night"] .avatar.avt-yanzhi { --avt-c: #C04C62; --avt-fg: #1B1214; }
+
+/* —— 印式：方章（金石气：微倾 + 内圈刻线）—— */
+.avatar.avs-fang {
+  border-radius: 6px;
+  transform: rotate(-2deg);
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.35);
+}
+body[data-theme="night"] .avatar.avs-fang { box-shadow: inset 0 0 0 1.5px rgba(0, 0, 0, 0.28); }
+
+/* —— 印式：阳文（印底透纸，字着印色）——
+   声明顺序在色板之后，同特异性下后者胜出，覆盖 tone 的背景 */
+.avatar.avs-yangwen {
+  background: transparent;
+  color: var(--avt-c, var(--ink));
+  box-shadow: inset 0 0 0 2px currentColor;
+}
+.avatar.avs-yangwen.avs-fang { transform: rotate(-2deg); }
+
+/* —— 工坊模态骨架 —— */
+.seal-studio { width: min(860px, 94vw); max-height: 88vh; overflow: hidden auto; }
+.ss-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.ss-auto {
+  border: 1px dashed var(--accent-big);
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 7px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ss-auto:hover { background: rgba(194, 64, 26, 0.07); }
+
+.ss-body { display: grid; grid-template-columns: 264px 1fr; gap: 20px; align-items: start; }
+
+/* 左：预览台 */
+.ss-preview {
+  border: 1px solid var(--rule);
+  background: color-mix(in srgb, var(--paper-strong, #FFFDF6) 60%, transparent);
+  padding: 18px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  position: sticky;
+  top: 0;
+}
+.ss-big-seal { width: 104px; height: 104px; font-size: 2.8rem; border-radius: 50%; }
+.ss-big-seal.avs-fang { border-radius: 10px; }
+.ss-big-name { font-family: var(--serif); font-weight: 700; font-size: 1.05rem; letter-spacing: 0.06em; }
+
+.ss-scenes { width: 100%; display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+.ss-scene { width: 100%; }
+.scene-tag {
+  display: inline-block;
+  font-size: 0.66rem;
+  letter-spacing: 0.16em;
+  color: var(--ink-muted);
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 2px;
+  margin-bottom: 6px;
+}
+.ss-scene-demo { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px dashed var(--rule); background: var(--paper); }
+.ss-scene-demo .avatar { width: 34px; height: 34px; font-size: 0.85rem; }
+.ss-demo-text { min-width: 0; display: flex; flex-direction: column; line-height: 1.35; }
+.ss-demo-text b { font-size: 0.82rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ss-demo-text span { font-size: 0.72rem; color: var(--ink-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* 右：控制区 */
+.ss-controls { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.ss-field { display: flex; flex-direction: column; gap: 8px; }
+.ss-label { font-size: 0.82rem; font-weight: 700; letter-spacing: 0.08em; display: flex; align-items: baseline; gap: 8px; }
+.ss-label i { font-style: normal; font-weight: 400; font-size: 0.72rem; color: var(--ink-muted); }
+
+/* 印文快捷格 */
+.ss-chars { display: grid; grid-template-columns: repeat(9, 1fr); gap: 6px; }
+.ss-char {
+  aspect-ratio: 1;
+  border: 1px solid var(--rule-strong);
+  background: var(--paper);
+  font-family: var(--serif);
+  font-weight: 700;
+  font-size: 1rem;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+.ss-char:hover { border-color: var(--accent-big); color: var(--accent); }
+.ss-char.on { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.ss-custom { margin-top: 2px; }
+
+/* 印泥色票 */
+.ss-tones { display: flex; flex-wrap: wrap; gap: 8px; }
+.ss-tone {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--rule-strong);
+  background: var(--paper);
+  padding: 6px 11px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.ss-tone .st-dot { width: 15px; height: 15px; border-radius: 50%; display: inline-block; flex: none; }
+.ss-tone .st-dot-auto { background: conic-gradient(#C2401A, #2E4E6E, #3E6B4F, #96632B, #5D3A6B, #A03448, #C2401A); color: #F6F1E7; font-size: 0.6rem; display: inline-grid; place-items: center; }
+.ss-tone:hover { border-color: var(--accent-big); }
+.ss-tone.on { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
+
+/* 印式三卡 */
+.ss-shapes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.ss-shape {
+  border: 1px solid var(--rule-strong);
+  background: var(--paper);
+  padding: 12px 8px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  text-align: center;
+}
+.ss-shape:hover { border-color: var(--accent-big); }
+.ss-shape.on { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
+.ss-shape b { font-size: 0.82rem; }
+.ss-shape small { font-size: 0.68rem; color: var(--ink-muted); line-height: 1.4; }
+.ssh-demo { width: 34px; height: 34px; font-size: 0.85rem; }
+
+/* —— 手机版（body.m 铁律前缀）—— */
+body.m .seal-studio { width: 96vw; max-height: 92vh; }
+body.m .ss-body { grid-template-columns: 1fr; }
+body.m .ss-preview { position: static; flex-direction: row; flex-wrap: wrap; justify-content: flex-start; }
+body.m .ss-big-seal { width: 76px; height: 76px; font-size: 2rem; }
+body.m .ss-scenes { flex: 1 1 160px; }
+body.m .ss-chars { grid-template-columns: repeat(6, 1fr); }
+body.m .ss-shapes { grid-template-columns: repeat(3, 1fr); }
+body.m .ss-head { flex-wrap: wrap; }

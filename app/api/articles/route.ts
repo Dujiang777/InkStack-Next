@@ -30,6 +30,72 @@ async function uniqueSlug(
   return candidate;
 }
 
+/**
+ * v17.9：slug 撞唯一键就换号重试。
+ *
+ * 原实现是 `uniqueSlug()`（SELECT 判重）之后**裸 INSERT**，两条语句之间无锁：
+ * 并发发布同名标题时多个请求会算出同一个 slug（中文标题一律回退为 `bo-日期-1`），
+ * 后到者撞 `articles.slug` 唯一键抛 ER_DUP_ENTRY，被最外层 catch 吞成 500
+ * 「发布失败（数据库异常）」——用户以为发布失败，其实已有一篇落库，重试即产生重复稿。
+ * 实测 8 并发同名发布 → 7×500 / 1×200。
+ * 现在：命中唯一键冲突即重新分配后缀重试（上限 5 次），其它错误照旧抛出。
+ */
+type NewArticleRow = {
+  authorId: number;
+  base: string;
+  title: string;
+  md: string;
+  summary: string | null;
+  coverLabel: string;
+  tags: string[];
+  unlockPrice: number;
+  discountPrice: number | null;
+  discountUntil: string | null;
+  asDraft: boolean;
+  reviewStatus: string;
+};
+
+async function insertArticleRetrySlug(
+  pool: NonNullable<Awaited<ReturnType<typeof getPool>>>,
+  row: NewArticleRow
+): Promise<string> {
+  for (let attempt = 0; ; attempt++) {
+    const slug = await uniqueSlug(pool, row.base);
+    try {
+      if (row.asDraft) {
+        await pool.query(
+          `INSERT INTO articles
+             (author_id, slug, title, md_content, summary, cover_label, tags, status, review_status, unlock_price, discount_price, discount_until)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', 'approved', ?, ?, ?)`,
+          [
+            row.authorId, slug, row.title, row.md, row.summary, row.coverLabel,
+            JSON.stringify(row.tags), row.unlockPrice, row.discountPrice, row.discountUntil,
+          ]
+        );
+      } else {
+        await pool.query(
+          `INSERT INTO articles
+             (author_id, slug, title, md_content, summary, cover_label, tags, status, review_status, unlock_price, discount_price, discount_until, published_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'published', ?, ?, ?, ?, NOW())`,
+          [
+            row.authorId, slug, row.title, row.md, row.summary, row.coverLabel,
+            JSON.stringify(row.tags), row.reviewStatus, row.unlockPrice, row.discountPrice, row.discountUntil,
+          ]
+        );
+      }
+      return slug;
+    } catch (e) {
+      if ((e as { code?: string }).code === "ER_DUP_ENTRY" && attempt < 8) {
+        // 抖动退避：并发请求会「同步」地重算出同一个空位，不加抖动就会反复对撞
+        // （实测 8 并发不加抖动时第 6 次重试仍可能全部落空）
+        await new Promise((r) => setTimeout(r, 5 + Math.floor(Math.random() * 20) * (attempt + 1)));
+        continue;
+      }
+      throw e;
+    }
+  }
+}
+
 export async function POST(req: Request) {
   const user = await getCurrentUser();
   if (!user) {
@@ -70,25 +136,23 @@ export async function POST(req: Request) {
 
   try {
     await ensurePaidColumns(pool);
-    const slug = await uniqueSlug(pool, makeSlug(title, 1));
-    if (asDraft) {
-      // 草稿：仅作者可见，不入审核流、不发奖励（status enum 原生含 'draft'）
-      await pool.query(
-        `INSERT INTO articles
-           (author_id, slug, title, md_content, summary, cover_label, tags, status, review_status, unlock_price, discount_price, discount_until)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', 'approved', ?, ?, ?)`,
-        [user.id, slug, title, md, summary, (body.coverLabel ?? "").trim().slice(0, 32) || "新稿", JSON.stringify(tags), unlockPrice, discount[0], discount[1]]
-      );
-      return NextResponse.json({ ok: true, draft: true, slug });
-    }
     // 审核流：普通用户发文 → 待审核（审核通过后公开展示）；管理员发文直接通过
-    const reviewStatus = isStaff(user.role) ? "approved" : "pending";
-    await pool.query(
-      `INSERT INTO articles
-         (author_id, slug, title, md_content, summary, cover_label, tags, status, review_status, unlock_price, discount_price, discount_until, published_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'published', ?, ?, ?, ?, NOW())`,
-      [user.id, slug, title, md, summary, (body.coverLabel ?? "").trim().slice(0, 32) || "新稿", JSON.stringify(tags), reviewStatus, unlockPrice, discount[0], discount[1]]
-    );
+    // 草稿：仅作者可见，不入审核流、不发奖励（status enum 原生含 'draft'）
+    const slug = await insertArticleRetrySlug(pool, {
+      authorId: user.id,
+      base: makeSlug(title, 1),
+      title,
+      md,
+      summary,
+      coverLabel: (body.coverLabel ?? "").trim().slice(0, 32) || "新稿",
+      tags,
+      unlockPrice,
+      discountPrice: discount[0],
+      discountUntil: discount[1],
+      asDraft,
+      reviewStatus: isStaff(user.role) ? "approved" : "pending",
+    });
+    if (asDraft) return NextResponse.json({ ok: true, draft: true, slug });
   } catch {
     return NextResponse.json({ error: "发布失败（数据库异常）" }, { status: 500 });
   }

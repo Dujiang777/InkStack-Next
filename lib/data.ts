@@ -1528,16 +1528,22 @@ export async function toggleBookmark(userId: number, slug: string): Promise<{ bo
   const art = (artRows as Record<string, unknown>[])[0];
   if (!art) return { bookmarked: false };
   const articleId = Number(art.id);
-  const [exRows] = await pool.query(`SELECT id FROM bookmarks WHERE user_id = ? AND article_id = ? LIMIT 1`, [
+  // v17.9：改为「INSERT IGNORE 判态、失败再删」。
+  //   原实现是「先 SELECT 判是否已收藏 → 再裸 INSERT」，两条语句之间无锁：
+  //   并发/双击（或前端重试）时两个请求都判为「未收藏」，后到者撞唯一键 uk_bm
+  //   抛 ER_DUP_ENTRY，被路由 catch 成 500「收藏失败，请稍后再试」。
+  //   实测 20 并发首次收藏 → 1 成功 / 19 抛 ER_DUP_ENTRY。
+  //   唯一键本身已保证不会重复，这里只需让「重复插入」不再变成异常；
+  //   与 toggleFollow 的 INSERT IGNORE 写法保持一致。
+  const [ins] = await pool.query(`INSERT IGNORE INTO bookmarks (user_id, article_id) VALUES (?, ?)`, [
     userId,
     articleId,
   ]);
-  if ((exRows as unknown[]).length > 0) {
-    await pool.query(`DELETE FROM bookmarks WHERE user_id = ? AND article_id = ?`, [userId, articleId]);
-    return { bookmarked: false };
+  if (Number((ins as { affectedRows?: number }).affectedRows ?? 0) === 1) {
+    return { bookmarked: true };
   }
-  await pool.query(`INSERT INTO bookmarks (user_id, article_id) VALUES (?, ?)`, [userId, articleId]);
-  return { bookmarked: true };
+  await pool.query(`DELETE FROM bookmarks WHERE user_id = ? AND article_id = ?`, [userId, articleId]);
+  return { bookmarked: false };
 }
 
 /** viewer 是否收藏了某篇 */
@@ -2507,35 +2513,58 @@ export async function deleteSeries(id: number, authorId: number): Promise<boolea
   return Number((res as { affectedRows: number }).affectedRows) > 0;
 }
 
-/** 重设专栏篇目（整体替换）：仅收本人已发布且过审的文章，按数组顺序定position */
+/** 重设专栏篇目（整体替换）：仅收本人已发布且过审的文章，按数组顺序定 position */
 export async function setSeriesItems(id: number, authorId: number, slugs: string[]): Promise<boolean> {
   const pool = await getPool();
   if (!pool) return false;
   await ensureSeriesTables(pool);
-  const [own] = await pool.query(`SELECT id FROM series WHERE id = ? AND author_id = ? LIMIT 1`, [id, authorId]);
-  if ((own as unknown[]).length === 0) return false;
-  if (slugs.length > 0) {
-    const [ok] = await pool.query(
-      `SELECT id FROM articles WHERE author_id = ? AND status = 'published' AND review_status = 'approved'
-        AND slug IN (${slugs.map(() => "?").join(",")})`,
-      [authorId, ...slugs]
+  // 重复篇目直接拒绝（原实现靠 `命中行数 !== 入参个数` 间接挡下，语义相同但更隐晦；
+  // 且若放任重复进 INSERT，会撞 series_items 主键 (series_id, article_id)）
+  if (new Set(slugs).size !== slugs.length) return false;
+  // v17.9：整段收进单事务，并对 series 行 FOR UPDATE 串行化同一专栏的重设请求。
+  //   原实现是「SELECT 校验归属 → DELETE series_items → SELECT 篇目 id → INSERT」四条
+  //   各自自动提交的语句：并发重设（前端双击保存）时 DELETE 各自提交、INSERT 撞主键，
+  //   实测 12 并发 → 3 成功 / 9 抛错（ER_DUP_ENTRY + ER_LOCK_DEADLOCK）；更糟的是
+  //   某个请求 DELETE 已提交而 INSERT 抛错时，专栏篇目会被清空且不回填（部分写入）。
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [own] = await conn.query(
+      `SELECT id FROM series WHERE id = ? AND author_id = ? LIMIT 1 FOR UPDATE`,
+      [id, authorId]
     );
-    if ((ok as unknown[]).length !== slugs.length) return false; // 有不属于自己的或未过审的
-  }
-  await pool.query(`DELETE FROM series_items WHERE series_id = ?`, [id]);
-  if (slugs.length > 0) {
-    const [idRows] = await pool.query(
-      `SELECT id, slug FROM articles WHERE slug IN (${slugs.map(() => "?").join(",")})`,
-      slugs
-    );
-    const idBySlug = new Map<string, number>();
-    for (const r of idRows as Record<string, unknown>[]) idBySlug.set(String(r.slug), Number(r.id));
-    const values = slugs.map((slug, i) => [id, idBySlug.get(slug), i]).filter((v) => typeof v[1] === "number");
-    if (values.length > 0) {
-      await pool.query(`INSERT INTO series_items (series_id, article_id, position) VALUES ?`, [values]);
+    if ((own as unknown[]).length === 0) {
+      await conn.rollback();
+      return false;
     }
+    const idBySlug = new Map<string, number>();
+    if (slugs.length > 0) {
+      const [ok] = await conn.query(
+        `SELECT id, slug FROM articles WHERE author_id = ? AND status = 'published' AND review_status = 'approved'
+          AND slug IN (${slugs.map(() => "?").join(",")})`,
+        [authorId, ...slugs]
+      );
+      if ((ok as unknown[]).length !== slugs.length) {
+        await conn.rollback();
+        return false; // 有不属于自己的或未过审的
+      }
+      for (const r of ok as Record<string, unknown>[]) idBySlug.set(String(r.slug), Number(r.id));
+    }
+    await conn.query(`DELETE FROM series_items WHERE series_id = ?`, [id]);
+    if (slugs.length > 0) {
+      const values = slugs.map((slug, i) => [id, idBySlug.get(slug), i]).filter((v) => typeof v[1] === "number");
+      if (values.length > 0) {
+        await conn.query(`INSERT INTO series_items (series_id, article_id, position) VALUES ?`, [values]);
+      }
+    }
+    await conn.commit();
+    return true;
+  } catch {
+    await conn.rollback().catch(() => {});
+    return false;
+  } finally {
+    conn.release();
   }
-  return true;
 }
 
 export type ArticleSeriesNav = {

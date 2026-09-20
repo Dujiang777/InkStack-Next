@@ -232,24 +232,38 @@ export async function POST(req: Request) {
         skipped.push({ title, reason: "你的账号下已有同名文章" });
         continue;
       }
-      const slug = await uniqueSlug(pool, makeSlug(title, seq));
-      await pool.query(
-        `INSERT INTO articles
-           (author_id, slug, title, md_content, summary, cover_label, tags, status, review_status,
-            read_count, comment_count, agent_qa_count, published_at)
-         VALUES (?, ?, ?, ?, ?, '迁移', ?, 'published', 'pending', 0, 0, 0, ?)`,
-        [
-          user.id,
-          slug,
-          title,
-          it.md,
-          it.summary,
-          JSON.stringify(["迁移"]),
-          // v17.1：源条目无日期（Markdown 文件、缺 pubDate 的 RSS）时落 NULL 会让
-          // published_at 为空，进而让 sitemap/热榜等按日期计算的下游出错；统一取导入时间兜底
-          it.publishedAt ?? new Date(),
-        ]
-      );
+      // v17.9：slug 撞唯一键（并发导入同名文章）时换号重试，不再直接判为「入库失败」
+      let slug = "";
+      let saved = false;
+      for (let attempt = 0; attempt < 6 && !saved; attempt++) {
+        slug = await uniqueSlug(pool, makeSlug(title, seq));
+        try {
+          await pool.query(
+            `INSERT INTO articles
+               (author_id, slug, title, md_content, summary, cover_label, tags, status, review_status,
+                read_count, comment_count, agent_qa_count, published_at)
+             VALUES (?, ?, ?, ?, ?, '迁移', ?, 'published', 'pending', 0, 0, 0, ?)`,
+            [
+              user.id,
+              slug,
+              title,
+              it.md,
+              it.summary,
+              JSON.stringify(["迁移"]),
+              // v17.1：源条目无日期（Markdown 文件、缺 pubDate 的 RSS）时落 NULL 会让
+              // published_at 为空，进而让 sitemap/热榜等按日期计算的下游出错；统一取导入时间兜底
+              it.publishedAt ?? new Date(),
+            ]
+          );
+          saved = true;
+        } catch (e) {
+          if ((e as { code?: string }).code === "ER_DUP_ENTRY" && attempt < 5) {
+            await new Promise((r) => setTimeout(r, 5 + Math.floor(Math.random() * 20) * (attempt + 1)));
+            continue;
+          }
+          throw e;
+        }
+      }
       imported.push({ title, slug });
       seq++;
     } catch {

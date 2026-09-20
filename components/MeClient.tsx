@@ -1,18 +1,30 @@
 "use client";
 
 // 个人中心客户端：资料编辑模态 + 改密卡 + 关注/点赞/评论足迹 tab
+// v17.4 印章工坊：资料编辑模态重做为「印章工坊」——大印预览 + 全站场景所见即所得
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { AVATAR_TONES, AVATAR_SHAPES, avatarClasses } from "@/lib/avatar";
 
 type Me = {
   id: number;
   nickname: string;
   email: string;
   avatarText: string;
+  avatarTone: string;
+  avatarShape: string;
   role: string;
   points: number;
 };
-type Following = { id: number; nickname: string; avatarText: string; bio: string; articles: number };
+type Following = {
+  id: number;
+  nickname: string;
+  avatarText: string;
+  avatarTone: string;
+  avatarShape: string;
+  bio: string;
+  articles: number;
+};
 type LikeItem = { slug: string; title: string; author: string; readCount: number };
 type CommentItem = { id: number; content: string; createdAt: string; articleSlug: string; articleTitle: string };
 type BookmarkItem = { slug: string; title: string; author: string; readCount: number; savedAt: string };
@@ -21,7 +33,10 @@ type Achievement = { key: string; name: string; desc: string; icon: string; earn
 
 const REWARD_AMOUNT = 100;
 
-const ROLE_LABEL: Record<string, string> = { admin: "站长", author: "作者", reader: "读者" };
+const ROLE_LABEL: Record<string, string> = { developer: "开发者", admin: "站长", author: "作者", reader: "读者" };
+
+/** 印文快捷格：常入印的吉字/雅字，一键取用 */
+const SEAL_CHARS = ["墨", "书", "诗", "酒", "茶", "剑", "花", "雪", "月", "风", "山", "云", "鹤", "灯", "言", "心", "舟", "侠"];
 
 /** 快捷入口：个人中心的高频动作一跳直达 */
 const QUICK_LINKS: { href: string; title: string; desc: string; no: string }[] = [
@@ -88,14 +103,37 @@ export default function MeClient({
   }
   const [unfollowed, setUnfollowed] = useState<number[]>([]);
 
-  /* ---------- 资料编辑 ---------- */
+  /* ---------- 资料编辑（印章工坊） ---------- */
   const [editOpen, setEditOpen] = useState(false);
   const [nick, setNick] = useState(me.nickname);
   const [avatarText, setAvatarText] = useState(me.avatarText);
+  const [avatarTone, setAvatarTone] = useState(me.avatarTone);
+  const [avatarShape, setAvatarShape] = useState(me.avatarShape);
   const [bioText, setBioText] = useState(bio);
   const [profileMsg, setProfileMsg] = useState("");
   const [profileErr, setProfileErr] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
+
+  function openStudio() {
+    // 每次打开以已保存值为基准，避免上次取消的残影
+    setNick(me.nickname);
+    setAvatarText(me.avatarText);
+    setAvatarTone(me.avatarTone);
+    setAvatarShape(me.avatarShape);
+    setBioText(bio);
+    setProfileMsg("");
+    setProfileErr("");
+    setEditOpen(true);
+  }
+
+  /** 让墨栈替你挑一方印：按昵称散列确定性推荐印文 + 印泥 + 印式 */
+  function autoSeal() {
+    let h = 0;
+    for (const ch of me.nickname + me.email) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    setAvatarText(SEAL_CHARS[h % SEAL_CHARS.length]);
+    setAvatarTone(AVATAR_TONES.slice(1)[h % AVATAR_TONES.slice(1).length].key); // 随缘池：跳过经典墨
+    setAvatarShape(AVATAR_SHAPES[(h >>> 3) % AVATAR_SHAPES.length].key);
+  }
 
   async function saveProfile() {
     if (savingProfile) return;
@@ -106,11 +144,11 @@ export default function MeClient({
       const r = await fetch("/api/me/profile", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nickname: nick, avatarText, bio: bioText }),
+        body: JSON.stringify({ nickname: nick, avatarText, avatarTone, avatarShape, bio: bioText }),
       });
       const d = (await r.json()) as { ok?: boolean; error?: string };
       if (r.ok && d.ok) {
-        setProfileMsg("资料已更新");
+        setProfileMsg("钤印已落，全站生效");
         setTimeout(() => {
           setEditOpen(false);
           router.refresh();
@@ -183,7 +221,7 @@ export default function MeClient({
     <div className="me-page">
       {/* ---------- 资料头卡 ---------- */}
       <section className="me-head">
-        <span className="avatar me-avatar" aria-hidden="true">
+        <span className={"avatar me-avatar " + avatarClasses(me.avatarTone, me.avatarShape, me.id)} aria-hidden="true">
           {me.avatarText}
         </span>
         <div className="me-id">
@@ -196,8 +234,8 @@ export default function MeClient({
           <p className="me-since">驻站于 {createdAt}</p>
         </div>
         <div className="me-actions">
-          <button className="btn main" onClick={() => setEditOpen(true)}>
-            编辑资料
+          <button className="btn main" onClick={openStudio}>
+            印章工坊 · 编辑资料
           </button>
           <a className="btn ghost" href="/study">
             我的书房 →
@@ -308,7 +346,7 @@ export default function MeClient({
             )}
             {followers.map((f) => (
               <li key={f.id} className="me-row">
-                <a className="avatar" href={`/author/${f.id}`} aria-hidden="true" tabIndex={-1}>
+                <a className={"avatar " + avatarClasses(f.avatarTone, f.avatarShape, f.id)} href={`/author/${f.id}`} aria-hidden="true" tabIndex={-1}>
                   {f.avatarText}
                 </a>
                 <div className="mr-main">
@@ -330,7 +368,7 @@ export default function MeClient({
             )}
             {shownFollowing.map((f) => (
               <li key={f.id} className="me-row">
-                <a className="avatar" href={`/author/${f.id}`} aria-hidden="true" tabIndex={-1}>
+                <a className={"avatar " + avatarClasses(f.avatarTone, f.avatarShape, f.id)} href={`/author/${f.id}`} aria-hidden="true" tabIndex={-1}>
                   {f.avatarText}
                 </a>
                 <div className="mr-main">
@@ -459,31 +497,166 @@ export default function MeClient({
         </div>
       </section>
 
-      {/* ---------- 资料编辑模态 ---------- */}
+      {/* ---------- 印章工坊（资料编辑模态 v17.4） ---------- */}
       {editOpen && (
         <div className="cashier-mask" onClick={() => setEditOpen(false)} role="presentation">
-          <div className="cashier me-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="编辑资料">
-            <span className="kicker">PROFILE · 编辑资料</span>
-            <div className="me-form">
-              <label>
-                昵称
-                <input value={nick} onChange={(e) => setNick(e.target.value)} maxLength={20} />
-              </label>
-              <label>
-                头像字（1-2 个字）
-                <input value={avatarText} onChange={(e) => setAvatarText(e.target.value)} maxLength={2} />
-              </label>
-              <label>
-                一句话简介
-                <textarea
-                  value={bioText}
-                  onChange={(e) => setBioText(e.target.value)}
-                  maxLength={120}
-                  rows={3}
-                  placeholder="告诉读者你是谁、在写什么…"
-                />
-              </label>
+          <div className="cashier me-modal seal-studio" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="印章工坊 · 编辑资料">
+            <div className="ss-head">
+              <span className="kicker">SEAL STUDIO · 印章工坊</span>
+              <button className="ss-auto" onClick={autoSeal} title="按你的昵称散列，让墨栈替你挑一方印">
+                ⚄ 让墨栈替你挑一方印
+              </button>
             </div>
+
+            <div className="ss-body">
+              {/* 左：大印预览 + 全站场景所见即所得 */}
+              <div className="ss-preview">
+                <div className={"ss-big-seal avatar " + avatarClasses(avatarTone, avatarShape, me.id)} aria-hidden="true">
+                  {avatarText || nick.slice(0, 1) || "墨"}
+                </div>
+                <p className="ss-big-name">{nick || "未署名"}</p>
+
+                <div className="ss-scenes" aria-label="全站效果预览">
+                  <div className="ss-scene">
+                    <span className="scene-tag">评论区</span>
+                    <div className="ss-scene-demo comment-like">
+                      <span className={"avatar " + avatarClasses(avatarTone, avatarShape, me.id)}>{avatarText || "墨"}</span>
+                      <div className="ss-demo-text">
+                        <b>{nick || "未署名"}</b>
+                        <span>这方印会随你的每条评论出现。</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="ss-scene">
+                    <span className="scene-tag">文章署名</span>
+                    <div className="ss-scene-demo byline-like">
+                      <span className={"avatar " + avatarClasses(avatarTone, avatarShape, me.id)}>{avatarText || "墨"}</span>
+                      <div className="ss-demo-text">
+                        <b>{nick || "未署名"}</b>
+                        <span>昨天 21:40 · 约 6 分钟</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="ss-scene">
+                    <span className="scene-tag">驻站作者带</span>
+                    <div className="ss-scene-demo feed-like">
+                      <span className={"avatar " + avatarClasses(avatarTone, avatarShape, me.id)}>{avatarText || "墨"}</span>
+                      <div className="ss-demo-text">
+                        <b>{nick || "未署名"}</b>
+                        <span>12 篇 · 3,204 赞 · 5.1 万 阅</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 右：印文 / 印泥 / 印式 / 资料 */}
+              <div className="ss-controls">
+                <div className="ss-field">
+                  <span className="ss-label">
+                    印文 <i>印章上那 1-2 个字</i>
+                  </span>
+                  <div className="ss-chars" role="listbox" aria-label="快捷印文">
+                    {SEAL_CHARS.map((ch) => (
+                      <button
+                        key={ch}
+                        className={"ss-char" + (avatarText === ch ? " on" : "")}
+                        onClick={() => setAvatarText(ch)}
+                        role="option"
+                        aria-selected={avatarText === ch}
+                      >
+                        {ch}
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    className="ss-custom"
+                    value={avatarText}
+                    onChange={(e) => setAvatarText(e.target.value)}
+                    maxLength={2}
+                    placeholder="或自定 1-2 字，留空取昵称首字"
+                    aria-label="自定义印文"
+                  />
+                </div>
+
+                <div className="ss-field">
+                  <span className="ss-label">
+                    印泥 <i>印底颜色，全站统一</i>
+                  </span>
+                  <div className="ss-tones" role="listbox" aria-label="印泥色">
+                    <button
+                      className={"ss-tone ss-tone-auto" + (avatarTone === "" ? " on" : "")}
+                      onClick={() => setAvatarTone("")}
+                      role="option"
+                      aria-selected={avatarTone === ""}
+                      title="随缘：按注册次序由墨栈派色"
+                    >
+                      <span className="st-dot st-dot-auto" aria-hidden="true">
+                        缘
+                      </span>
+                      随缘
+                    </button>
+                    {AVATAR_TONES.map((t) => (
+                      <button
+                        key={t.key}
+                        className={"ss-tone" + (avatarTone === t.key ? " on" : "")}
+                        onClick={() => setAvatarTone(t.key)}
+                        role="option"
+                        aria-selected={avatarTone === t.key}
+                      >
+                        <span className="st-dot" style={{ background: t.light }} aria-hidden="true" />
+                        {t.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="ss-field">
+                  <span className="ss-label">
+                    印式 <i>章法形制</i>
+                  </span>
+                  <div className="ss-shapes" role="listbox" aria-label="印式">
+                    {AVATAR_SHAPES.map((s) => (
+                      <button
+                        key={s.key || "yuan"}
+                        className={"ss-shape" + (avatarShape === s.key ? " on" : "")}
+                        onClick={() => setAvatarShape(s.key)}
+                        role="option"
+                        aria-selected={avatarShape === s.key}
+                      >
+                        <span className={"ssh-demo avatar " + (s.key ? "avs-" + s.key : "")} aria-hidden="true">
+                          墨
+                        </span>
+                        <b>{s.name}</b>
+                        <small>{s.desc}</small>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="ss-field">
+                  <span className="ss-label">
+                    昵称 <i>{nick.length}/20</i>
+                  </span>
+                  <input value={nick} onChange={(e) => setNick(e.target.value)} maxLength={20} aria-label="昵称" />
+                </div>
+
+                <div className="ss-field">
+                  <span className="ss-label">
+                    一句话简介 <i>{bioText.length}/120</i>
+                  </span>
+                  <textarea
+                    value={bioText}
+                    onChange={(e) => setBioText(e.target.value)}
+                    maxLength={120}
+                    rows={2}
+                    placeholder="告诉读者你是谁、在写什么…"
+                    aria-label="一句话简介"
+                  />
+                </div>
+              </div>
+            </div>
+
             {profileMsg && <p className="pw-ok">{profileMsg}</p>}
             {profileErr && <p className="pw-err">{profileErr}</p>}
             <div className="cashier-btns">
@@ -491,7 +664,7 @@ export default function MeClient({
                 取消
               </button>
               <button className="btn main" onClick={saveProfile} disabled={savingProfile || !nick.trim()}>
-                {savingProfile ? "保存中…" : "保存"}
+                {savingProfile ? "研墨中…" : "钤印即成 · 保存"}
               </button>
             </div>
           </div>

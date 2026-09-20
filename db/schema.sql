@@ -12,8 +12,10 @@ CREATE TABLE IF NOT EXISTS users (
   email         VARCHAR(128) NOT NULL UNIQUE,
   password_hash VARCHAR(255) NOT NULL,
   avatar_text   VARCHAR(8)   NOT NULL DEFAULT '墨',
+  avatar_tone   VARCHAR(16)  NOT NULL DEFAULT '' COMMENT '印泥色（v17.4）：""=随缘派定 | ink | 色板 key（lib/avatar.ts）',
+  avatar_shape  VARCHAR(16)  NOT NULL DEFAULT '' COMMENT '印式（v17.4）：""=圆章 | fang 方章 | yangwen 阳文',
   bio           VARCHAR(255) NULL,
-  role          ENUM('reader','author','admin') NOT NULL DEFAULT 'reader',
+  role          ENUM('reader','author','admin','developer') NOT NULL DEFAULT 'reader',
   points_balance INT NOT NULL DEFAULT 100,
   last_quota_date DATE NULL COMMENT '每日免费额度懒重置标记（最近一次发放日）',
   created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP

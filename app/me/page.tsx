@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { getPool } from "@/lib/db";
-import { followStats, listMyFollowing, listMyFollowers, listMyLikes, listMyComments, listMyBookmarks, listMyHistory, listAchievements, badgeRewardClaimed } from "@/lib/data";
+import { followStats, listMyFollowing, listMyFollowers, listMyLikes, listMyComments, listMyBookmarks, listMyHistory, listAchievements, badgeRewardClaimed, ensureAvatarColumns } from "@/lib/data";
 import MeClient from "@/components/MeClient";
 
 export const metadata = { title: "个人中心 · 墨栈 InkStack" };
@@ -16,10 +16,15 @@ export default async function MePage() {
   const pool = await getPool();
   let bio = "";
   let createdAt = "—";
+  let avatarText = user.nickname.slice(0, 1);
+  let avatarTone = "";
+  let avatarShape = "";
   if (pool) {
     try {
+      await ensureAvatarColumns(pool);
       const [rows] = await pool.query(
-        `SELECT IFNULL(bio, '') AS bio,
+        `SELECT IFNULL(bio, '') AS bio, avatar_text AS avatarText,
+                COALESCE(avatar_tone, '') AS avatarTone, COALESCE(avatar_shape, '') AS avatarShape,
                 DATE_FORMAT(created_at, '%Y-%m-%d') AS createdAt
          FROM users WHERE id = ? LIMIT 1`,
         [user.id]
@@ -28,6 +33,9 @@ export default async function MePage() {
       if (r) {
         bio = String(r.bio ?? "");
         createdAt = String(r.createdAt ?? "—");
+        avatarText = String(r.avatarText ?? avatarText) || avatarText;
+        avatarTone = String(r.avatarTone ?? "");
+        avatarShape = String(r.avatarShape ?? "");
       }
     } catch {
       /* 兜底 */
@@ -52,7 +60,9 @@ export default async function MePage() {
         id: user.id,
         nickname: user.nickname,
         email: user.email,
-        avatarText: user.nickname.slice(0, 1),
+        avatarText,
+        avatarTone,
+        avatarShape,
         role: user.role,
         points: user.points,
       }}

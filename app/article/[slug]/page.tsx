@@ -14,6 +14,7 @@ import ReadTracker from "@/components/ReadTracker";
 import PaywallCard from "@/components/PaywallCard";
 import SeriesPicker from "@/components/SeriesPicker";
 import { effectiveUnlockPrice } from "@/lib/data";
+import { avatarClasses } from "@/lib/avatar";
 
 /** 付费墙试读：锁定读者只拿到前 12 行，再收在段落边界（固定最多 6 行，杜绝短文泄漏） */
 function teaserOf(md: string): string {
@@ -108,7 +109,7 @@ export default async function ArticlePage({ params }: { params: Promise<{ slug: 
           </p>
           <h1 className="article-title">{article.title}</h1>
           <div className="article-meta">
-            <span className="avatar" aria-hidden="true">{article.authorAvatar}</span>
+            <span className={"avatar " + avatarClasses(article.authorTone, article.authorShape, article.authorId)} aria-hidden="true">{article.authorAvatar}</span>
             <b>
               {article.authorId ? (
                 <Link className="meta-author" href={`/author/${article.authorId}`}>

@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth";
 import Reveal from "@/components/Reveal";
 import InkQuote from "@/components/InkQuote";
 import { plainText } from "@/components/plain-text";
+import { avatarClasses } from "@/lib/avatar";
 
 // 首页 v3：数据横幅 → 头条 → 热榜+作者榜侧栏 → 关注动态流（登录且有关注时）→ 编号卡片流
 export default async function HomePage() {
@@ -245,7 +246,7 @@ export default async function HomePage() {
             {authors.map((au, i) => (
               <Link key={au.id} href={`/author/${au.id}`} className="ab-card">
                 <span className={"rank r" + (i + 1)}>{i + 1}</span>
-                <span className="avatar" aria-hidden="true">
+                <span className={"avatar " + avatarClasses(au.avatarTone, au.avatarShape, au.id)} aria-hidden="true">
                   {au.avatarText}
                 </span>
                 <b className="ab-name">{au.nickname}</b>

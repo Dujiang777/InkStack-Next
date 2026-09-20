@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth";
 import { getPool } from "@/lib/db";
 import { grantDailyQuota, localDateStr } from "@/lib/points";
@@ -86,6 +87,39 @@ export default async function PointsPage() {
             </ul>
           </div>
         </div>
+
+        <footer className="points-foot">
+          <div className="hf-note">
+            <b>还没入墨？</b>
+            <p>
+              注册即送 100 滴，每天访问再自动补 30 滴——足够先把 AI 续写和分身问答试个遍。
+              真到了日更的强度，再回这里按需补给。
+            </p>
+          </div>
+          <div className="hf-acts">
+            <Link className="hf-cta" href="/login">
+              <i aria-hidden="true">墨</i>
+              <span className="hf-body">
+                <b>注册领 100 滴</b>
+                <small>每日再补 30 滴</small>
+              </span>
+            </Link>
+            <Link className="hf-cta" href="/search">
+              <i aria-hidden="true">检</i>
+              <span className="hf-body">
+                <b>全站检索</b>
+                <small>先看看别人的文章</small>
+              </span>
+            </Link>
+            <Link className="hf-cta" href="/hot">
+              <i aria-hidden="true">榜</i>
+              <span className="hf-body">
+                <b>热度热榜</b>
+                <small>本周最值得读的</small>
+              </span>
+            </Link>
+          </div>
+        </footer>
       </div>
     );
   }
@@ -143,6 +177,7 @@ export default async function PointsPage() {
   const nextCd = cycleDayOf(streak + 1);
   const nextReward = rewardForCycleDay(nextCd);
   const quotaText = quotaDone ? "今日 30 滴已入仓" : "今日 30 滴待领取（访问任意页自动入仓）";
+  const ledgerSum = ledger.reduce((s, r) => s + r.delta, 0);
 
   return (
     <div className="points-page">
@@ -177,7 +212,14 @@ export default async function PointsPage() {
       </div>
 
       <section className="topup-section">
-        <h3 className="section-title">墨水补给站 · 充值</h3>
+        <header className="topup-head">
+          <span className="kicker">TOP UP · 补给站</span>
+          <h3 className="section-title">墨水补给站</h3>
+          <p className="topup-lede">
+            四档套餐一次入仓、永久有效。做大额创作前先备墨，AI 续写与分身问答就不会断顿。
+            买得越足，每元换回的墨水越多——下面每一档都标了换算刻痕。
+          </p>
+        </header>
         <TopUpClient />
       </section>
 
@@ -207,28 +249,76 @@ export default async function PointsPage() {
       </div>
 
       <div className="ledger">
-        <h3>墨水账本 · 最近 20 笔</h3>
+        <header className="ledger-head">
+          <h3>墨水账本</h3>
+          <span className="ledger-recent">最近 20 笔 · 出入皆记</span>
+        </header>
         {ledger.length ? (
-          <table>
-            <thead>
-              <tr><th>变动</th><th>事由</th><th>时间</th></tr>
-            </thead>
-            <tbody>
+          <>
+            <ol className="ledger-list">
               {ledger.map((r, i) => (
-                <tr key={i}>
-                  <td className={r.delta >= 0 ? "up" : "down"}>
-                    {r.delta >= 0 ? `+${r.delta}` : r.delta}
-                  </td>
-                  <td>{r.reason}</td>
-                  <td className="at">{r.at}</td>
-                </tr>
+                <li key={i} className={`ld-row ${r.delta >= 0 ? "up" : "down"}`}>
+                  <span className="ld-mark" aria-hidden="true">
+                    {r.delta >= 0 ? "入" : "出"}
+                  </span>
+                  <span className="ld-amount">{r.delta >= 0 ? `+${r.delta}` : r.delta}</span>
+                  <span className="ld-reason">{r.reason}</span>
+                  <span className="ld-at">{r.at}</span>
+                </li>
               ))}
-            </tbody>
-          </table>
+            </ol>
+            <p className="ledger-foot">
+              近 20 笔合计{" "}
+              <b>{ledgerSum >= 0 ? `+${ledgerSum.toLocaleString()}` : ledgerSum.toLocaleString()}</b>{" "}
+              滴 · 每日补给、签到与充值都会自动记在这里
+            </p>
+          </>
         ) : (
-          <p className="sub">还没有流水——去写点什么，或者今天先签个到。</p>
+          <div className="ledger-empty">
+            <span className="le-seal" aria-hidden="true">
+              空
+            </span>
+            <b>账本还是空的</b>
+            <p>还没有一笔流水——去写点什么，或者今天先签个到，第一笔很快就来。</p>
+            <Link className="le-cta" href="/studio">
+              上版写作
+            </Link>
+          </div>
         )}
       </div>
+
+      <footer className="points-foot">
+        <div className="hf-note">
+          <b>墨水的去处</b>
+          <p>
+            写作用它，问分身用它，给作者打赏、替文章加热也用它。AI 生成失败会自动退墨，不扣冤枉墨水；
+            每日补给（+30）只够日常小酌，签到周期与编辑器一样按自然日结算。
+          </p>
+        </div>
+        <div className="hf-acts">
+          <Link className="hf-cta" href="/studio">
+            <i aria-hidden="true">写</i>
+            <span className="hf-body">
+              <b>AI 创作台</b>
+              <small>续写 / 润色 / 起标题</small>
+            </span>
+          </Link>
+          <Link className="hf-cta" href="/hot">
+            <i aria-hidden="true">榜</i>
+            <span className="hf-body">
+              <b>热度热榜</b>
+              <small>看哪种墨水最值钱</small>
+            </span>
+          </Link>
+          <Link className="hf-cta" href="/search">
+            <i aria-hidden="true">检</i>
+            <span className="hf-body">
+              <b>全站检索</b>
+              <small>按题名 / 摘要定位</small>
+            </span>
+          </Link>
+        </div>
+      </footer>
     </div>
   );
 }

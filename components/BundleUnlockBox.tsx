@@ -1,6 +1,7 @@
 "use client";
 
-// 专栏打包解锁盒：鎏金一口价，划线对比单买合计；按购买时点篇目快照解锁
+// 专栏打包解锁盒：整卷「一口价」契约条（墨纸朱砂语言），划线对比单买合计；
+// 按购买时点篇目快照解锁，已单买篇目自动折抵。
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -14,7 +15,6 @@ type Props = {
   paidCount: number;
   loggedIn: boolean;
   balance: number | null;
-  /** 已经打包购买过（服务端判定后不再渲染本组件） */
   /** 打包累计解锁篇目人次（>0 时显示热度条） */
   soldCount?: number;
 };
@@ -57,49 +57,61 @@ export default function BundleUnlockBox({
   }
 
   return (
-    <div className="bundle-box">
-      <p className="bb-kicker">BUNDLE · 全栏一口价</p>
-      <b className="bb-title">整栏打包 · 一次带走</b>
-      {soldCount > 0 && (
-        <p className="bb-heat">
-          <i className="pw-flame" aria-hidden="true">▲</i>
-          已有 {soldCount.toLocaleString()} 篇次经打包解锁 · 同频读者都在收
+    <section className="bundle-box" aria-label="整卷打包解锁">
+      <div className="bb-left">
+        <p className="bb-kicker">
+          <i className="bb-lat">BUNDLE</i>
+          <em aria-hidden="true">／</em>全卷一口价
         </p>
-      )}
-      <p className="bb-desc">
-        一口价解锁本栏全部 {paidCount} 篇付费专稿（按购买时点计）；已单买的篇目自动折抵，不重复收费。
-      </p>
-      <div className="bb-row">
+        <b className="bb-title">整卷打包 · 一次带走</b>
+        {soldCount > 0 && (
+          <p className="bb-heat">
+            <i className="bb-mark" aria-hidden="true">
+              热
+            </i>
+            已有 <b>{soldCount.toLocaleString()}</b> 篇次经打包解锁 · 同频读者都在收
+          </p>
+        )}
+        <p className="bb-desc">
+          一口价解锁本卷全部 <b>{paidCount}</b> 篇付费专稿（按购买时点计）；已单买的篇目自动折抵，不重复收费。
+        </p>
+      </div>
+
+      <div className="bb-deal">
+        <span className="bb-deal-label">一口价</span>
         <span className="bb-price">
           {fullPrice > price && <s className="bb-orig">单买 {fullPrice}</s>}
-          {price} <i>点墨</i>
+          {price}
+          <i>点墨</i>
         </span>
         {save > 0 && <span className="bb-save">立省 {save} 点</span>}
         {loggedIn ? (
           <button className="bb-btn" onClick={buy} disabled={busy || done}>
-            {done ? "已打包 · 揭示全栏…" : busy ? "解锁中…" : short ? "墨水不足 · 去补货" : "打包解锁全栏"}
+            {done ? "已打包 · 揭示全卷…" : busy ? "解锁中…" : short ? "墨水不足 · 去补货" : "打包解锁全卷"}
           </button>
         ) : (
           <Link className="bb-btn" href="/login">
             登录后打包解锁
           </Link>
         )}
+        {loggedIn && balance !== null && (
+          <p className="bb-balance">
+            余额 <b>{balance.toLocaleString()}</b> 点墨
+            {short ? (
+              <>
+                {" · "}
+                <Link href="/points" className="bb-topup">
+                  去墨仓补货 →
+                </Link>
+              </>
+            ) : (
+              <span className="bb-share"> · 作者得 {Math.floor(price * 0.7)} 点</span>
+            )}
+          </p>
+        )}
       </div>
-      {loggedIn && balance !== null && (
-        <p className="bb-balance">
-          当前余额 {balance.toLocaleString()} 点墨
-          {short && (
-            <>
-              {" · "}
-              <Link href="/points" className="bb-topup">
-                去墨仓补货 →
-              </Link>
-            </>
-          )}
-          {!short && <span className="bb-share"> · 作者得 {Math.floor(price * 0.7)} 点</span>}
-        </p>
-      )}
+
       {err && <p className="pw-err">✕ {err}</p>}
-    </div>
+    </section>
   );
 }

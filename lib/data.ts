@@ -2,7 +2,6 @@
 // 这样个人开发者可以先把界面跑起来，再接数据库
 import { getPool } from "./db";
 import { demoArticles, demoComments, type DemoArticle, type DemoComment } from "./demo-data";
-import { spendPoints, creditPoints } from "./points";
 
 export type ArticleRow = {
   slug: string;
@@ -39,6 +38,9 @@ export type ArticleRow = {
   unlockCount?: number;
   /** 当前浏览者是否已可读全文（作者/管理员/已购买） */
   viewerUnlocked?: boolean;
+  /** 印章工坊（v17.4）：作者印面（详情查询返回） */
+  authorTone?: string;
+  authorShape?: string;
 };
 
 /** 日期归一化：DB 的 DATE_FORMAT 结果 → 'YYYY-MM-DD'；NULL/非法值一律返回空串。
@@ -58,6 +60,34 @@ export function effectiveUnlockPrice(a: { unlockPrice?: number; discountPrice?: 
   if (original <= 0 || d <= 0 || d >= original) return original;
   if (a.discountUntil && new Date(a.discountUntil).getTime() <= Date.now()) return original;
   return d;
+}
+
+/* ---------- 印章头像列（v17.4 印章工坊）：懒迁移，进程内只查一次 ---------- */
+let avatarColsReady: Promise<boolean> | null = null;
+export function ensureAvatarColumns(pool: NonNullable<Awaited<ReturnType<typeof getPool>>>): Promise<boolean> {
+  if (!avatarColsReady) {
+    avatarColsReady = (async () => {
+      try {
+        const [cols] = await pool.query(
+          `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'
+              AND COLUMN_NAME IN ('avatar_tone','avatar_shape')`
+        );
+        const have = new Set((cols as { COLUMN_NAME: string }[]).map((r) => r.COLUMN_NAME));
+        if (!have.has("avatar_tone")) {
+          await pool.query(`ALTER TABLE users ADD COLUMN avatar_tone VARCHAR(16) NOT NULL DEFAULT ''`);
+        }
+        if (!have.has("avatar_shape")) {
+          await pool.query(`ALTER TABLE users ADD COLUMN avatar_shape VARCHAR(16) NOT NULL DEFAULT ''`);
+        }
+        return true;
+      } catch {
+        // 列缺失时读取面会拿到 undefined → 走随缘派色兜底，不阻塞主流程
+        return false;
+      }
+    })();
+  }
+  return avatarColsReady;
 }
 
 /** 早鸟价入参校验：返回可落库的 [discountPrice, discountUntil]（无效一律回落 [null, null]） */
@@ -209,8 +239,10 @@ export async function getArticle(
   if (pool) {
     try {
       await ensurePaidColumns(pool);
+      await ensureAvatarColumns(pool);
       const [rows] = await pool.query(
         `SELECT a.slug, a.title, u.nickname AS author, u.avatar_text AS authorAvatar,
+                COALESCE(u.avatar_tone,'') AS authorTone, COALESCE(u.avatar_shape,'') AS authorShape,
                 a.author_id AS authorId, a.review_status AS reviewStatus, a.review_note AS reviewNote,
                 a.summary, IFNULL(a.cover_label,'') AS coverLabel, a.tags,
                 a.read_count AS readCount, a.comment_count AS commentCount,
@@ -242,6 +274,8 @@ export async function getArticle(
           title: String(r.title),
           author: String(r.author),
           authorAvatar: String(r.authorAvatar),
+          authorTone: String(r.authorTone ?? ""),
+          authorShape: String(r.authorShape ?? ""),
           summary: String(r.summary ?? ""),
           coverLabel: String(r.coverLabel ?? ""),
           tags: Array.isArray(r.tags) ? (r.tags as string[]) : [],
@@ -424,6 +458,11 @@ export type CommentRow = {
   likes: number;
   /** 当前浏览者是否已赞该评论 */
   viewerLiked: boolean;
+  /** 印章工坊（v17.4）：评论者 id 与印面（游客评论无 id，走经典墨） */
+  userId?: number | null;
+  avatarText?: string;
+  avatarTone?: string;
+  avatarShape?: string;
 };
 
 function demoToCommentRows(slug: string): CommentRow[] {
@@ -474,6 +513,7 @@ export async function listComments(slug: string, viewerId?: number | null): Prom
   if (pool) {
     try {
       await ensureCommentLikesTable(pool);
+      await ensureAvatarColumns(pool);
       const [rows] = await pool.query(
         `SELECT c.id,
                 COALESCE(u.nickname, c.guest_nickname, '访客') AS nickname,
@@ -481,6 +521,10 @@ export async function listComments(slug: string, viewerId?: number | null): Prom
                 c.parent_id AS parentId,
                 COALESCE(pu.nickname, p.guest_nickname, '楼层') AS parentAuthor,
                 DATE_FORMAT(c.created_at,'%Y-%m-%d %H:%i') AS createdAt,
+                c.user_id AS userId,
+                COALESCE(u.avatar_text, '') AS avatarText,
+                COALESCE(u.avatar_tone, '') AS avatarTone,
+                COALESCE(u.avatar_shape, '') AS avatarShape,
                 (SELECT COUNT(*) FROM comment_likes cl WHERE cl.comment_id = c.id) AS likes,
                 ${viewerId ? "EXISTS(SELECT 1 FROM comment_likes v WHERE v.comment_id = c.id AND v.user_id = ?)" : "0"} AS viewerLiked
          FROM comments c
@@ -502,6 +546,10 @@ export async function listComments(slug: string, viewerId?: number | null): Prom
           parentAuthor: r.parentAuthor ? String(r.parentAuthor) : null,
           likes: Number(r.likes ?? 0),
           viewerLiked: Boolean(Number(r.viewerLiked ?? 0)),
+          userId: r.userId ? Number(r.userId) : null,
+          avatarText: String(r.avatarText ?? ""),
+          avatarTone: String(r.avatarTone ?? ""),
+          avatarShape: String(r.avatarShape ?? ""),
         }));
       }
     } catch {
@@ -535,11 +583,18 @@ export async function addComment(
         parentId = (pRows as { id: number }[])[0]?.id ?? null;
         if (!parentId) return { ok: false, error: "要回复的评论不存在或已删除" };
       }
+      // v17.5：INSERT..SELECT 补 status='published'。原实现不限定状态，任何人只要猜到
+      //   slug（中文标题的草稿 slug 形如 bo-20260918-1，可枚举）就能给别人的**草稿/已撤回**
+      //   文章灌评论——既污染未公开内容，又给作者发通知，还种下 comments 外键子行
+      //   导致作者草稿硬删被 FK 挡下。同时不再对未命中的 slug 虚增 comment_count。
       const [ins] = await pool.query(
         `INSERT INTO comments (article_id, user_id, guest_nickname, parent_id, content)
-         SELECT id, ?, ?, ?, ? FROM articles WHERE slug = ?`,
+         SELECT id, ?, ?, ?, ? FROM articles WHERE slug = ? AND status = 'published'`,
         [user?.id ?? null, user ? null : nickname, parentId, content, slug]
       );
+      if (Number((ins as { affectedRows?: number }).affectedRows ?? 0) === 0) {
+        return { ok: false, error: "文章不存在或未公开，无法评论" };
+      }
       await pool.query(
         `UPDATE articles SET comment_count = comment_count + 1 WHERE slug = ?`,
         [slug]
@@ -832,19 +887,44 @@ export async function adminSetUser(
   const amt = Math.floor(Number(amount) || 0);
   if (amt <= 0 || amt > 100_000) return { ok: false, error: "点墨数量须为 1–100000" };
   const delta = action === "grant" ? amt : -amt;
-  const [r] = await pool.query(
-    `UPDATE users SET points_balance = GREATEST(0, points_balance + ?) WHERE id = ?`,
-    [delta, userId]
-  );
-  if ((r as { affectedRows?: number }).affectedRows === 0) return { ok: false, error: "用户不存在" };
-  await pool
-    .query(`INSERT INTO point_ledger (user_id, delta, reason) VALUES (?, ?, ?)`, [
+  // v17.4：余额变更与流水落账收进同一事务；扣减不再用 GREATEST(0,..) 掩盖差额 ——
+  // 原写法「账记 -200、余额只掉 50」会让 point_ledger 求和与真实余额永久对不上。
+  // 现按真实余额变化记 applied，账面与流水恒等；流水写失败即整体回滚。
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [rows] = await conn.query(
+      `SELECT points_balance FROM users WHERE id = ? FOR UPDATE`,
+      [userId]
+    );
+    const cur = (rows as Record<string, unknown>[])[0];
+    if (!cur) {
+      await conn.rollback();
+      return { ok: false, error: "用户不存在" };
+    }
+    const before = Number(cur.points_balance ?? 0);
+    const after = Math.max(0, before + delta);
+    const applied = after - before;
+    if (applied === 0) {
+      await conn.rollback();
+      return { ok: false, error: "该用户余额已为 0，无可扣回的点墨" };
+    }
+    await conn.query(`UPDATE users SET points_balance = ? WHERE id = ?`, [after, userId]);
+    await conn.query(`INSERT INTO point_ledger (user_id, delta, reason) VALUES (?, ?, ?)`, [
       userId,
-      delta,
-      action === "grant" ? `运营发放 ${amt} 点墨` : `运营扣回 ${amt} 点墨`,
-    ])
-    .catch(() => {});
-  return { ok: true };
+      applied,
+      action === "grant"
+        ? `运营发放 ${amt} 点墨`
+        : `运营扣回 ${-applied} 点墨${applied !== delta ? `（请求 ${amt}，余额不足按实际扣减）` : ""}`,
+    ]);
+    await conn.commit();
+    return { ok: true };
+  } catch {
+    await conn.rollback();
+    return { ok: false, error: "点墨调整失败，请稍后再试" };
+  } finally {
+    conn.release();
+  }
 }
 
 /* ==================== v17.1 运营台扩展：资金 / 评论 / 改价 ==================== */
@@ -1098,6 +1178,8 @@ export type AuthorRankRow = {
   id: number;
   nickname: string;
   avatarText: string;
+  avatarTone: string;
+  avatarShape: string;
   likes: number;
   articles: number;
   readTotal: number;
@@ -1107,14 +1189,16 @@ export async function topAuthors(limit = 5): Promise<AuthorRankRow[]> {
   const pool = await getPool();
   if (!pool) return [];
   try {
+    await ensureAvatarColumns(pool);
     const [rows] = await pool.query(
       `SELECT u.id, u.nickname, u.avatar_text AS avatarText,
+              COALESCE(u.avatar_tone,'') AS avatarTone, COALESCE(u.avatar_shape,'') AS avatarShape,
               IFNULL(SUM(a.like_count),0) AS likes,
               COUNT(a.id) AS articles,
               IFNULL(SUM(a.read_count),0) AS readTotal
        FROM articles a JOIN users u ON u.id = a.author_id
        WHERE a.status = 'published' AND a.review_status = 'approved'
-       GROUP BY a.author_id, u.id, u.nickname, u.avatar_text
+       GROUP BY a.author_id, u.id, u.nickname, u.avatar_text, u.avatar_tone, u.avatar_shape
        ORDER BY likes DESC, readTotal DESC
        LIMIT ?`,
       [limit]
@@ -1124,6 +1208,8 @@ export async function topAuthors(limit = 5): Promise<AuthorRankRow[]> {
       id: Number(r.id),
       nickname: String(r.nickname),
       avatarText: String(r.avatarText ?? "墨"),
+      avatarTone: String(r.avatarTone ?? ""),
+      avatarShape: String(r.avatarShape ?? ""),
       likes: Number(r.likes ?? 0),
       articles: Number(r.articles ?? 0),
       readTotal: Number(r.readTotal ?? 0),
@@ -1285,13 +1371,15 @@ export async function toggleFollow(
 
 /** 关注我的人（个人中心·粉丝列表） */
 export async function listMyFollowers(userId: number, limit = 50): Promise<
-  { id: number; nickname: string; avatarText: string; bio: string; articles: number }[]
+  { id: number; nickname: string; avatarText: string; avatarTone: string; avatarShape: string; bio: string; articles: number }[]
 > {
   const pool = await getPool();
   if (!pool) return [];
   try {
+    await ensureAvatarColumns(pool);
     const [rows] = await pool.query(
       `SELECT u.id, u.nickname, u.avatar_text AS avatarText,
+              COALESCE(u.avatar_tone,'') AS avatarTone, COALESCE(u.avatar_shape,'') AS avatarShape,
               IFNULL(u.bio, '') AS bio,
               (SELECT COUNT(*) FROM articles a
                 WHERE a.author_id = u.id AND a.status = 'published' AND a.review_status = 'approved') AS articles
@@ -1305,6 +1393,8 @@ export async function listMyFollowers(userId: number, limit = 50): Promise<
       id: Number(r.id),
       nickname: String(r.nickname),
       avatarText: String(r.avatarText ?? "墨"),
+      avatarTone: String(r.avatarTone ?? ""),
+      avatarShape: String(r.avatarShape ?? ""),
       bio: String(r.bio ?? ""),
       articles: Number(r.articles ?? 0),
     }));
@@ -1315,12 +1405,15 @@ export async function listMyFollowers(userId: number, limit = 50): Promise<
 
 /** 我关注的人（个人中心足迹） */
 export async function listMyFollowing(userId: number, limit = 50): Promise<
-  { id: number; nickname: string; avatarText: string; bio: string; articles: number }[]
-> {  const pool = await getPool();
+  { id: number; nickname: string; avatarText: string; avatarTone: string; avatarShape: string; bio: string; articles: number }[]
+> {
+  const pool = await getPool();
   if (!pool) return [];
   try {
+    await ensureAvatarColumns(pool);
     const [rows] = await pool.query(
       `SELECT u.id, u.nickname, u.avatar_text AS avatarText,
+              COALESCE(u.avatar_tone,'') AS avatarTone, COALESCE(u.avatar_shape,'') AS avatarShape,
               IFNULL(u.bio, '') AS bio,
               (SELECT COUNT(*) FROM articles a
                 WHERE a.author_id = u.id AND a.status = 'published' AND a.review_status = 'approved') AS articles
@@ -1334,6 +1427,8 @@ export async function listMyFollowing(userId: number, limit = 50): Promise<
       id: Number(r.id),
       nickname: String(r.nickname),
       avatarText: String(r.avatarText ?? "墨"),
+      avatarTone: String(r.avatarTone ?? ""),
+      avatarShape: String(r.avatarShape ?? ""),
       bio: String(r.bio ?? ""),
       articles: Number(r.articles ?? 0),
     }));
@@ -1422,7 +1517,14 @@ export async function toggleBookmark(userId: number, slug: string): Promise<{ bo
   const pool = await getPool();
   if (!pool) return { bookmarked: false };
   await ensureBookmarksTable(pool);
-  const [artRows] = await pool.query(`SELECT id FROM articles WHERE slug = ? LIMIT 1`, [slug]);
+  // v17.5：必须限定 status='published'。原实现只按 slug 命中，于是草稿（乃至 removed）
+  //   也能被收藏——文章页对它们本就 404，收藏按钮无处可达，但接口可直接打；
+  //   更糟的是这会往 bookmarks 里种下外键子行，让作者的草稿硬删被 FK RESTRICT 挡下。
+  //   与 like / tip / boost / unlock 的公开态口径保持一致。
+  const [artRows] = await pool.query(
+    `SELECT id FROM articles WHERE slug = ? AND status = 'published' LIMIT 1`,
+    [slug]
+  );
   const art = (artRows as Record<string, unknown>[])[0];
   if (!art) return { bookmarked: false };
   const articleId = Number(art.id);
@@ -1628,6 +1730,8 @@ export type AuthorProfile = {
   id: number;
   nickname: string;
   avatarText: string;
+  avatarTone: string;
+  avatarShape: string;
   bio: string;
   createdAt: string;
   articles: number;
@@ -1640,8 +1744,11 @@ export async function getAuthor(id: number): Promise<AuthorProfile | null> {
   const pool = await getPool();
   if (!pool) return null;
   try {
+    await ensureAvatarColumns(pool);
     const [rows] = await pool.query(
-      `SELECT u.id, u.nickname, u.avatar_text AS avatarText, IFNULL(u.bio,'') AS bio,
+      `SELECT u.id, u.nickname, u.avatar_text AS avatarText,
+              COALESCE(u.avatar_tone,'') AS avatarTone, COALESCE(u.avatar_shape,'') AS avatarShape,
+              IFNULL(u.bio,'') AS bio,
               DATE_FORMAT(u.created_at,'%Y-%m-%d') AS createdAt,
               (SELECT COUNT(*) FROM articles a WHERE a.author_id = u.id
                 AND a.status='published' AND a.review_status='approved') AS articles,
@@ -1658,6 +1765,8 @@ export async function getAuthor(id: number): Promise<AuthorProfile | null> {
       id: Number(r.id),
       nickname: String(r.nickname),
       avatarText: String(r.avatarText ?? "墨"),
+      avatarTone: String(r.avatarTone ?? ""),
+      avatarShape: String(r.avatarShape ?? ""),
       bio: String(r.bio ?? ""),
       createdAt: String(r.createdAt ?? ""),
       articles: Number(r.articles ?? 0),
@@ -2697,7 +2806,7 @@ export async function unlockArticle(slug: string, userId: number): Promise<Unloc
 
 export type BundleUnlockResult =
   | { ok: true; price: number; authorGot: number; unlocked: number; balance: number; already: boolean }
-  | { ok: false; error: string };
+  | { ok: false; error: string; code: MoneyFailCode };
 
 /**
  * 打包解锁整个专栏：一口价买断「购买时点」的付费篇目快照。
@@ -2709,7 +2818,7 @@ export type BundleUnlockResult =
  */
 export async function bundleUnlock(seriesId: number, userId: number): Promise<BundleUnlockResult> {
   const pool = await getPool();
-  if (!pool) return { ok: false, error: "数据库暂不可用" };
+  if (!pool) return { ok: false, error: "数据库暂不可用", code: "server" };
   try {
     await ensureSeriesTables(pool);
     await ensurePaidColumns(pool);
@@ -2718,10 +2827,10 @@ export async function bundleUnlock(seriesId: number, userId: number): Promise<Bu
       [seriesId]
     );
     const s = (sRows as { id: number; author_id: number; bundlePrice: number | null }[])[0];
-    if (!s) return { ok: false, error: "专栏不存在" };
+    if (!s) return { ok: false, error: "专栏不存在", code: "notfound" };
     const bundlePrice = Math.floor(Number(s.bundlePrice ?? 0));
-    if (bundlePrice <= 0) return { ok: false, error: "本专栏未开放打包购买" };
-    if (Number(s.author_id) === userId) return { ok: false, error: "这是你自己的专栏，无需购买" };
+    if (bundlePrice <= 0) return { ok: false, error: "本专栏未开放打包购买", code: "forbidden" };
+    if (Number(s.author_id) === userId) return { ok: false, error: "这是你自己的专栏，无需购买", code: "forbidden" };
 
     // 未解锁的付费篇目（排除已单买过的）
     const [aRows] = await pool.query(
@@ -2734,7 +2843,7 @@ export async function bundleUnlock(seriesId: number, userId: number): Promise<Bu
     );
     const pending = (aRows as { id: number; unlockPrice: number }[]).map((r) => Number(r.id));
     if (pending.length === 0) {
-      return { ok: false, error: "专栏内已无待解锁的付费篇目" };
+      return { ok: false, error: "专栏内已无待解锁的付费篇目", code: "forbidden" };
     }
 
     // 分摊：floor 均摊，余数分给前几篇（保证 sum(shares) === bundlePrice）
@@ -2764,7 +2873,7 @@ export async function bundleUnlock(seriesId: number, userId: number): Promise<Bu
       const bal = Number((balRows as Record<string, unknown>[])[0]?.points_balance ?? 0);
       if (bal < bundlePrice) {
         await conn.rollback();
-        return { ok: false, error: `积分不足（余额 ${bal}，本次需 ${bundlePrice}）` };
+        return { ok: false, error: `积分不足（余额 ${bal}，本次需 ${bundlePrice}）`, code: "insufficient" };
       }
       await conn.query(`UPDATE users SET points_balance = points_balance - ? WHERE id = ?`, [bundlePrice, userId]);
       await conn.query(`INSERT INTO point_ledger (user_id, delta, reason) VALUES (?, ?, ?)`, [userId, -bundlePrice, "专栏打包解锁"]);
@@ -2786,12 +2895,202 @@ export async function bundleUnlock(seriesId: number, userId: number): Promise<Bu
       return { ok: true, price: bundlePrice, authorGot, unlocked: pending.length, balance: bal - bundlePrice, already: false };
     } catch {
       await conn.rollback();
-      return { ok: false, error: "打包解锁失败，请稍后再试" };
+      return { ok: false, error: "打包解锁失败，请稍后再试", code: "server" };
     } finally {
       conn.release();
     }
   } catch {
-    return { ok: false, error: "打包解锁失败，请稍后再试" };
+    return { ok: false, error: "打包解锁失败，请稍后再试", code: "server" };
+  }
+}
+
+/* ======================= 打赏 / 加热（单事务金钱链路） ======================= */
+
+export const TIP_AMOUNTS = [10, 50] as const;
+/** 作者分成比例（打赏 90% / 平台 10%） */
+const TIP_AUTHOR_SHARE = 0.9;
+export const BOOST_COST = 80;
+
+export type MoneyFailCode = "notfound" | "forbidden" | "insufficient" | "server";
+
+export type TipResult =
+  | { ok: true; amount: number; authorGot: number; balance: number; toUserId: number }
+  | { ok: false; error: string; code: MoneyFailCode };
+
+export type BoostResult =
+  | { ok: true; cost: number; balance: number; boostUntil: string | null }
+  | { ok: false; error: string; code: MoneyFailCode };
+
+/**
+ * 墨水打赏（v17.3 单事务重构）。
+ *
+ * 修复前：`spendPoints()` 事务提交 → `creditPoints()` 事务提交，两段式。
+ * 第二段失败靠补偿事务退分，补偿再失败就**永久丢墨**；两段提交之间进程崩溃
+ * 同样无法补偿（没有任何待补偿记录可恢复）。且 `article_tips` 明细用
+ * `.catch(()=>{})` 吞掉，会出现「钱动了、流水没落」的对账缺口。
+ *
+ * 现在对齐 `unlockArticle` 的标准写法：扣款、作者分账、双份流水、明细落库
+ * 全在**同一事务**内，任一环节失败整体回滚，不再依赖补偿。
+ * 并发安全：`SELECT ... FOR UPDATE` 按 id 升序锁定双方账户行，规避互相打赏时的死锁。
+ */
+export async function tipArticle(
+  slug: string,
+  fromUserId: number,
+  amount: number
+): Promise<TipResult> {
+  if (!(TIP_AMOUNTS as readonly number[]).includes(amount)) {
+    return { ok: false, error: `打赏档位须为 ${TIP_AMOUNTS.join(" 或 ")} 点墨`, code: "server" };
+  }
+  const pool = await getPool();
+  if (!pool) return { ok: false, error: "数据库暂不可用", code: "server" };
+  try {
+    const [rows] = await pool.query(
+      "SELECT id, author_id FROM articles WHERE slug = ? AND status = 'published' LIMIT 1",
+      [slug]
+    );
+    const art = (rows as { id: number; author_id: number }[])[0];
+    if (!art) return { ok: false, error: "文章不存在", code: "notfound" };
+    const toUserId = Number(art.author_id);
+    if (toUserId === fromUserId) return { ok: false, error: "不能给自己的文章打赏", code: "forbidden" };
+
+    const authorGot = Math.floor(amount * TIP_AUTHOR_SHARE);
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      // 1) 双方账户按 id 升序加锁（避免互相打赏造成交叉等待死锁）
+      const [lockRows] = await conn.query(
+        `SELECT id, points_balance FROM users WHERE id IN (?, ?) ORDER BY id FOR UPDATE`,
+        [fromUserId, toUserId]
+      );
+      const bal = Number(
+        (lockRows as Record<string, unknown>[]).find((r) => Number(r.id) === fromUserId)
+          ?.points_balance ?? 0
+      );
+      if (bal < amount) {
+        await conn.rollback();
+        return { ok: false, error: `积分不足（余额 ${bal}，本次需 ${amount}）`, code: "insufficient" };
+      }
+      // 2) 读者扣款 + 流水
+      await conn.query("UPDATE users SET points_balance = points_balance - ? WHERE id = ?", [
+        amount,
+        fromUserId,
+      ]);
+      await conn.query("INSERT INTO point_ledger (user_id, delta, reason) VALUES (?, ?, ?)", [
+        fromUserId,
+        -amount,
+        "墨水打赏",
+      ]);
+      // 3) 作者分账 + 流水
+      await conn.query("UPDATE users SET points_balance = points_balance + ? WHERE id = ?", [
+        authorGot,
+        toUserId,
+      ]);
+      await conn.query("INSERT INTO point_ledger (user_id, delta, reason) VALUES (?, ?, ?)", [
+        toUserId,
+        authorGot,
+        "收到打赏",
+      ]);
+      // 4) 明细落库（同事务，不再吞异常）
+      await conn.query(
+        "INSERT INTO article_tips (article_id, from_user, to_user, amount) VALUES (?, ?, ?, ?)",
+        [art.id, fromUserId, toUserId, amount]
+      );
+      await conn.commit();
+      return { ok: true, amount, authorGot, balance: bal - amount, toUserId };
+    } catch {
+      await conn.rollback();
+      return { ok: false, error: "打赏失败，请稍后再试", code: "server" };
+    } finally {
+      conn.release();
+    }
+  } catch {
+    return { ok: false, error: "打赏失败，请稍后再试", code: "server" };
+  }
+}
+
+/**
+ * 文章加热（v17.3 单事务重构）。
+ *
+ * 修复前：`spendPoints()` 提交后写 `article_boosts`；`affectedRows !== 1` 有退墨分支，
+ * 但**抛异常时没有**——`pool.query` 一旦抛错（表缺失、连接中断、超时、自引用子查询报错），
+ * 控制流直接跳到最外层 catch 返回 500，那 80 点墨**既不加热也不退还**，静默蒸发。
+ *
+ * 现在：锁行扣款、流水、加热记录全在同一事务内，异常一律回滚，钱与货要么同时成立要么都不动。
+ */
+export async function boostArticle(slug: string, userId: number): Promise<BoostResult> {
+  const pool = await getPool();
+  if (!pool) return { ok: false, error: "数据库暂不可用", code: "server" };
+  try {
+    const [rows] = await pool.query(
+      "SELECT id, author_id FROM articles WHERE slug = ? AND status = 'published' LIMIT 1",
+      [slug]
+    );
+    const art = (rows as { id: number; author_id: number }[])[0];
+    if (!art) return { ok: false, error: "文章不存在", code: "notfound" };
+    if (Number(art.author_id) !== userId) {
+      return { ok: false, error: "只能加热自己的文章", code: "forbidden" };
+    }
+
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      // 1) 锁行扣款 + 流水
+      const [balRows] = await conn.query(
+        "SELECT points_balance FROM users WHERE id = ? FOR UPDATE",
+        [userId]
+      );
+      const bal = Number((balRows as Record<string, unknown>[])[0]?.points_balance ?? 0);
+      if (bal < BOOST_COST) {
+        await conn.rollback();
+        return {
+          ok: false,
+          error: `积分不足（余额 ${bal}，本次需 ${BOOST_COST}）`,
+          code: "insufficient",
+        };
+      }
+      await conn.query("UPDATE users SET points_balance = points_balance - ? WHERE id = ?", [
+        BOOST_COST,
+        userId,
+      ]);
+      await conn.query("INSERT INTO point_ledger (user_id, delta, reason) VALUES (?, ?, ?)", [
+        userId,
+        -BOOST_COST,
+        "文章加热·24h",
+      ]);
+      // 2) 写入加热记录：叠加规则「新截止 = MAX(现在, 现有未过期截止) + 24h」
+      const [ins] = await conn.query(
+        `INSERT INTO article_boosts (article_id, user_id, boost_until)
+         VALUES (?, ?, DATE_ADD(GREATEST(NOW(), IFNULL(
+                    (SELECT MAX(b.boost_until) FROM article_boosts b
+                      WHERE b.article_id = ? AND b.boost_until > NOW()), NOW())), INTERVAL 24 HOUR))`,
+        [art.id, userId, art.id]
+      );
+      const boostId = Number((ins as { insertId?: number }).insertId ?? 0);
+      if (!boostId) {
+        await conn.rollback();
+        return { ok: false, error: "加热失败，请稍后再试", code: "server" };
+      }
+      const [untilRows] = await conn.query(
+        "SELECT boost_until AS until_ FROM article_boosts WHERE id = ?",
+        [boostId]
+      );
+      const until = (untilRows as { until_: Date | string | null }[])[0]?.until_ ?? null;
+      await conn.commit();
+      return {
+        ok: true,
+        cost: BOOST_COST,
+        balance: bal - BOOST_COST,
+        boostUntil:
+          until instanceof Date ? until.toISOString() : until ? new Date(String(until)).toISOString() : null,
+      };
+    } catch {
+      await conn.rollback();
+      return { ok: false, error: "加热失败，请稍后再试", code: "server" };
+    } finally {
+      conn.release();
+    }
+  } catch {
+    return { ok: false, error: "加热失败，请稍后再试", code: "server" };
   }
 }
 

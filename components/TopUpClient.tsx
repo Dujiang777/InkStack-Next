@@ -20,7 +20,18 @@ const PACKS: Pack[] = [
   { key: "studio", name: "工作室包", cents: 12800, points: 17800, tag: "", note: "多送 1000 滴 · 团队/高频使用" },
 ];
 
-const yuan = (cents: number) => `¥${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}`;
+// 竖排序数：与全站「壹贰叁」编号语言一致
+const PACK_NO = ["壹", "贰", "叁", "肆"];
+
+const yuanNum = (cents: number) => (cents / 100).toFixed(cents % 100 === 0 ? 0 : 2);
+const yuan = (cents: number) => `¥${yuanNum(cents)}`;
+// 每元换得多少滴墨水：points / (cents / 100)
+const perYuan = (p: Pack) => (p.points * 100) / p.cents;
+const MAX_UNIT = Math.max(...PACKS.map(perYuan));
+const MIN_UNIT = Math.min(...PACKS.map(perYuan));
+// 刻痕基线取最低档的九成，把 100→139 的差距拉开成可读的梯度（而不是四条都接近满格）
+const METER_BASE = MIN_UNIT * 0.9;
+const METER_SPAN = MAX_UNIT - METER_BASE;
 
 /* ---------- 用户充值协议（合规 P1：虚拟商品/退款/未成年人） ---------- */
 const AGREEMENT_SECTIONS: { t: string; b: string }[] = [
@@ -134,25 +145,43 @@ export default function TopUpClient() {
     return g;
   }
 
+  const chLabel = (c: string | null) => (c === "wechat" ? "微信支付" : "支付宝");
+
   return (
     <div className="topup">
       <div className="topup-grid">
-        {PACKS.map((p) => {
+        {PACKS.map((p, i) => {
           const sel = selected === p.key;
-          const unit = (p.cents / p.points) * 100;
+          const unit = perYuan(p);
+          const meterW = Math.max(14, Math.round(((unit - METER_BASE) / METER_SPAN) * 100));
           return (
             <button
               key={p.key}
               className={`pack-card${sel ? " sel" : ""}`}
               onClick={() => setSelected(p.key)}
               type="button"
+              aria-pressed={sel}
+              aria-label={`选择${p.name}，${p.points} 滴墨水，${yuan(p.cents)}`}
             >
               {p.tag && <span className="pack-tag">{p.tag}</span>}
-              <span className="pack-name">{p.name}</span>
-              <b className="pack-points">{p.points.toLocaleString()}</b>
-              <span className="pack-unit">墨水 · 合 {unit.toFixed(0)} 滴/元</span>
-              <span className="pack-price">{yuan(p.cents)}</span>
-              <span className="pack-note">{p.note}</span>
+              <span className="pack-no" aria-hidden="true">
+                {PACK_NO[i]}
+              </span>
+              <span className="pack-body">
+                <span className="pack-name">{p.name}</span>
+                <b className="pack-points">
+                  {p.points.toLocaleString()}
+                  <i>滴</i>
+                </b>
+                <span className="pack-unit">
+                  <span className="pack-meter" aria-hidden="true">
+                    <i style={{ width: `${meterW}%` }} />
+                  </span>
+                  合 {unit.toFixed(0)} 滴/元
+                </span>
+                <span className="pack-price">{yuan(p.cents)}</span>
+                <span className="pack-note">{p.note}</span>
+              </span>
             </button>
           );
         })}
@@ -184,8 +213,24 @@ export default function TopUpClient() {
 
       {showAgreement && (
         <div className="cashier-mask" onClick={() => setShowAgreement(false)} role="presentation">
-          <div className="cashier agreement" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="用户充值协议">
-            <span className="kicker">AGREEMENT · 用户充值协议</span>
+          <div
+            className="cashier agreement"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="用户充值协议"
+          >
+            <header className="cashier-top">
+              <span className="kicker">AGREEMENT · 用户充值协议</span>
+              <button
+                className="cashier-x"
+                onClick={() => setShowAgreement(false)}
+                aria-label="关闭协议"
+                type="button"
+              >
+                ×
+              </button>
+            </header>
             <div className="agreement-body">
               {AGREEMENT_SECTIONS.map((s) => (
                 <section key={s.t}>
@@ -213,26 +258,68 @@ export default function TopUpClient() {
 
       {cashier && (
         <div className="cashier-mask" onClick={closeCashier} role="presentation">
-          <div className="cashier" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="收银台">
-            <span className="cashier-no">订单号 {cashier.orderNo}</span>
+          <div
+            className="cashier"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="收银台"
+          >
+            <header className="cashier-top">
+              <span className="kicker">
+                {done ? "RECEIPT · 入仓回执" : channel ? `${chLabel(channel)} · 扫码支付` : "CASHIER · 收银台"}
+              </span>
+              <button
+                className="cashier-x"
+                onClick={closeCashier}
+                aria-label="关闭收银台"
+                type="button"
+              >
+                ×
+              </button>
+            </header>
+
             {done ? (
               <div className="cashier-done">
                 <span className="ink-seal">墨</span>
                 <b>+{done.points.toLocaleString()} 滴墨水已入仓</b>
-                <p>当前余额 {done.balance.toLocaleString()} 滴</p>
-                <button onClick={closeCashier}>好的</button>
+                <dl className="done-rows">
+                  <div>
+                    <dt>套餐</dt>
+                    <dd>
+                      {cashier.pack.name} · {cashier.pack.points.toLocaleString()} 滴
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>支付渠道</dt>
+                    <dd>{chLabel(channel)}（沙箱模拟）</dd>
+                  </div>
+                  <div>
+                    <dt>实付</dt>
+                    <dd>{yuan(cashier.pack.cents)}</dd>
+                  </div>
+                  <div>
+                    <dt>当前余额</dt>
+                    <dd>{done.balance.toLocaleString()} 滴</dd>
+                  </div>
+                </dl>
+                <p className="done-no">订单号 {cashier.orderNo}</p>
+                <button onClick={closeCashier}>好的，去写作</button>
               </div>
             ) : channel ? (
               <>
+                <p className="cashier-no">订单号 {cashier.orderNo}</p>
                 <div className="cashier-head">
-                  <span className="kicker">
-                    {channel === "wechat" ? "WECHAT PAY · 微信支付" : "ALIPAY · 支付宝"}
-                  </span>
-                  <b className="cashier-title">{cashier.pack.name} · {cashier.pack.points.toLocaleString()} 滴墨水</b>
-                  <b className="cashier-amount">{yuan(cashier.pack.cents)}</b>
+                  <b className="cashier-title">
+                    {cashier.pack.name} · {cashier.pack.points.toLocaleString()} 滴墨水
+                  </b>
+                  <b className="cashier-amount">
+                    <i>¥</i>
+                    {yuanNum(cashier.pack.cents)}
+                  </b>
                 </div>
                 <div className="qr-box" aria-label="模拟支付二维码">
-                  <svg viewBox="0 0 21 21" width="168" height="168" role="img">
+                  <svg viewBox="0 0 21 21" role="img">
                     {fakeQr(cashier.orderNo + channel).map((row, y) =>
                       row.map((on, x) =>
                         on ? <rect key={`${x}-${y}`} x={x} y={y} width="1" height="1" fill="#1c1a17" /> : null
@@ -247,11 +334,12 @@ export default function TopUpClient() {
                     : "支付宝网关凭证未配置，当前为模拟通道，不会产生真实扣费。"}
                 </p>
                 <button className="pay-channel single" onClick={() => pay(channel)} disabled={paying}>
-                  <span className={`ch-ico ${channel === "wechat" ? "ch-wx" : "ch-ali"}`}>✓</span>
-                  <span>
+                  <span className="ch-ico">✓</span>
+                  <span className="pc-body">
                     <b>{paying ? "确认入账中…" : "模拟支付成功"}</b>
                     <i>沙箱自闭环 · 立即到账</i>
                   </span>
+                  <span className="pc-state">沙箱</span>
                 </button>
                 <button
                   className="cashier-close"
@@ -263,25 +351,44 @@ export default function TopUpClient() {
               </>
             ) : (
               <>
+                <p className="cashier-no">订单号 {cashier.orderNo}</p>
                 <div className="cashier-head">
-                  <span className="kicker">CASHIER · 收银台</span>
-                  <b className="cashier-title">{cashier.pack.name} · {cashier.pack.points.toLocaleString()} 滴墨水</b>
-                  <b className="cashier-amount">{yuan(cashier.pack.cents)}</b>
+                  <b className="cashier-title">
+                    {cashier.pack.name} · {cashier.pack.points.toLocaleString()} 滴墨水
+                  </b>
+                  <b className="cashier-amount">
+                    <i>¥</i>
+                    {yuanNum(cashier.pack.cents)}
+                  </b>
                 </div>
                 <div className="pay-channels">
-                  <button className="pay-channel" onClick={() => setChannel("wechat")} type="button">
-                    <span className="ch-ico ch-wx">微</span>
-                    <span>
+                  <button
+                    className="pay-channel ch-wechat"
+                    onClick={() => setChannel("wechat")}
+                    type="button"
+                  >
+                    <span className="ch-ico" aria-hidden="true">
+                      微
+                    </span>
+                    <span className="pc-body">
                       <b>微信支付</b>
-                      <i>凭证未配置 · 模拟通道</i>
+                      <i>WECHAT PAY · 凭证未配置</i>
                     </span>
+                    <span className="pc-state">模拟</span>
                   </button>
-                  <button className="pay-channel" onClick={() => setChannel("alipay")} type="button">
-                    <span className="ch-ico ch-ali">支</span>
-                    <span>
-                      <b>支付宝</b>
-                      <i>凭证未配置 · 模拟通道</i>
+                  <button
+                    className="pay-channel ch-alipay"
+                    onClick={() => setChannel("alipay")}
+                    type="button"
+                  >
+                    <span className="ch-ico" aria-hidden="true">
+                      支
                     </span>
+                    <span className="pc-body">
+                      <b>支付宝</b>
+                      <i>ALIPAY · 凭证未配置</i>
+                    </span>
+                    <span className="pc-state">模拟</span>
                   </button>
                 </div>
                 {error && <p className="topup-error">{error}</p>}

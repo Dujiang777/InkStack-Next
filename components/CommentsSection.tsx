@@ -2,8 +2,10 @@
 
 // 评论区 v2：树形回复（内联回复框 + 「回复 @xx」标注）+ 举报
 // 数据形态：listComments 返回全量（含 parentId/parentAuthor），前端分组渲染
+// v17.4 印章工坊：评论头像带印泥色/印式（游客与缺数据回退经典墨）
 import { useEffect, useMemo, useState } from "react";
 import type { CommentRow } from "@/lib/data";
+import { avatarClasses } from "@/lib/avatar";
 
 export default function CommentsSection({
   slug,
@@ -203,8 +205,8 @@ export default function CommentsSection({
   function renderItem(c: CommentRow, isReply: boolean, floor?: number) {
     return (
       <li key={c.id} className={isReply ? "comment-item reply" : "comment-item"}>
-        <div className="avatar" aria-hidden="true">
-          {c.nickname.slice(0, 1)}
+        <div className={"avatar " + avatarClasses(c.avatarTone, c.avatarShape, c.userId)} aria-hidden="true">
+          {c.avatarText || c.nickname.slice(0, 1)}
         </div>
         <div className="comment-body">
           {typeof floor === "number" && <span className="comment-floor" aria-hidden="true">第 {floor} 层</span>}

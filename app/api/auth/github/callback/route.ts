@@ -5,7 +5,7 @@ import { randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { getPool, dbEnabled } from "@/lib/db";
-import { setSessionCookie } from "@/lib/auth";
+import { setSessionCookie, cleanNickname } from "@/lib/auth";
 
 function fail(reason: string): NextResponse {
   return NextResponse.redirect(new URL(`/login?oauth=github&err=${reason}`, process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3100"));
@@ -54,7 +54,8 @@ export async function GET(req: Request) {
     if (!gh.login || !gh.id) return fail("profile");
     // 邮箱取 GitHub 主邮箱；未授权邮箱时用 noreply 地址兜底（保证本地唯一键）
     const email = primaryEmail ?? `${gh.id}+${gh.login}@users.noreply.github.com`;
-    const nickname = (gh.name || gh.login).slice(0, 20);
+    // v17.7：第三方返回的昵称不受我方控制 → 统一净化后再入库/发信
+    const nickname = cleanNickname(gh.name || gh.login);
     const avatarText = nickname.slice(0, 1).toUpperCase();
     const bio = (gh.bio ?? "").slice(0, 250);
 

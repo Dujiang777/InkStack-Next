@@ -7,7 +7,7 @@ import { randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { getPool, dbEnabled } from "@/lib/db";
-import { setSessionCookie } from "@/lib/auth";
+import { setSessionCookie, cleanNickname } from "@/lib/auth";
 
 function fail(reason: string): NextResponse {
   return NextResponse.redirect(new URL(`/login?oauth=gitee&err=${reason}`, process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3100"));
@@ -69,7 +69,8 @@ export async function GET(req: Request) {
     }
     // 邮箱兜底：保证本地唯一键（Gitee 未公开邮箱时无法真实取到）
     const email = primaryEmail || `${ge.id}+${ge.login}@users.noreply.gitee.com`;
-    const nickname = (ge.name || ge.login).slice(0, 20);
+    // v17.7：第三方返回的昵称不受我方控制 → 统一净化后再入库/发信
+    const nickname = cleanNickname(ge.name || ge.login);
     const avatarText = nickname.slice(0, 1).toUpperCase();
     const bio = (ge.bio ?? "").slice(0, 250);
 

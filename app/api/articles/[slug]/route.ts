@@ -141,11 +141,37 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ slug
       return NextResponse.json({ error: "只能撤回自己的文章" }, { status: 403 });
     }
     if (art.status === "draft") {
-      // 草稿硬删除：本就无公开数据，清理干净不留僵尸行
-      await pool.query(`DELETE FROM article_boosts WHERE article_id = ?`, [art.id]);
-      await pool.query(`DELETE FROM article_tips WHERE article_id = ?`, [art.id]);
-      await pool.query(`DELETE FROM article_likes WHERE article_id = ?`, [art.id]);
-      await pool.query(`DELETE FROM articles WHERE id = ?`, [art.id]);
+      // 草稿硬删除：单事务先清全部外键子行、再删主行。
+      // v17.5：原实现是 4 条各自自动提交的语句，且只清了 boosts/tips/likes——
+      //   漏了 bookmarks / read_history / comments / series_items / article_purchases。
+      //   只要存在任一漏掉的子行（草稿可被收藏、可被评论，见 lib/data.ts 的公开态校验），
+      //   `DELETE FROM articles` 就会被外键 RESTRICT 挡下 → 走外层 catch 返 500，
+      //   而前 3 条 DELETE 已经提交 → 草稿删不掉、likes/tips/boosts 却被清空的「部分删除」。
+      const conn = await pool.getConnection();
+      try {
+        await conn.beginTransaction();
+        // 表名均为硬编码常量；统一按 article_id 清理，顺序无所谓（同一事务内提交）
+        const CHILD_TABLES = [
+          "article_boosts",
+          "article_tips",
+          "article_likes",
+          "bookmarks",
+          "read_history",
+          "comments",
+          "series_items",
+          "article_purchases",
+        ];
+        for (const t of CHILD_TABLES) {
+          await conn.query(`DELETE FROM ${t} WHERE article_id = ?`, [art.id]);
+        }
+        await conn.query(`DELETE FROM articles WHERE id = ?`, [art.id]);
+        await conn.commit();
+      } catch {
+        await conn.rollback();
+        return NextResponse.json({ error: "撤回失败（数据库异常）" }, { status: 500 });
+      } finally {
+        conn.release();
+      }
       return NextResponse.json({ ok: true, deleted: true });
     }
     await pool.query(`UPDATE articles SET status = 'removed', pinned = 0, featured = 0 WHERE id = ?`, [art.id]);

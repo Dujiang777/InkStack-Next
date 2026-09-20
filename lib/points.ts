@@ -40,6 +40,43 @@ export async function spendPoints(
   }
 }
 
+// 只读余额探针（v17.4）：给「先生成后扣费」的链路做前置拦截用。
+// 不参与计费、不加锁、不落流水——仅为避免余额不足的用户白耗上游 LLM token；
+// 真正的扣款仍由 spendPoints 在「上游确认可用」后以 FOR UPDATE 原子执行。
+export async function peekBalance(userId: number): Promise<number> {
+  const pool = await getPool();
+  if (!pool) return 0;
+  try {
+    const [rows] = await pool.query("SELECT points_balance FROM users WHERE id = ?", [userId]);
+    return Number((rows as Record<string, unknown>[])[0]?.points_balance ?? 0);
+  } catch {
+    // 读失败一律放行（返回足够余额），不因探针故障阻断正常链路
+    return Number.POSITIVE_INFINITY;
+  }
+}
+
+// 在**调用方已开启的事务连接**上执行「加分 + 流水」，不自行 begin/commit/release。
+// v17.4：给需要与其它写库动作同生共死的场景用（如签到：checkins 行与发墨必须同事务，
+// 否则发墨失败后签到行已落库、用户当天既没墨也签不了）。抛错由调用方 catch → 整体回滚。
+export async function creditPointsOn(
+  conn: { query: (sql: string, params?: unknown[]) => Promise<unknown> },
+  userId: number,
+  amount: number,
+  reason: string
+): Promise<boolean> {
+  const [upd] = (await conn.query(
+    "UPDATE users SET points_balance = points_balance + ? WHERE id = ?",
+    [amount, userId]
+  )) as [{ affectedRows?: number }];
+  if (Number(upd?.affectedRows ?? 0) !== 1) return false;
+  await conn.query("INSERT INTO point_ledger (user_id, delta, reason) VALUES (?, ?, ?)", [
+    userId,
+    amount,
+    reason,
+  ]);
+  return true;
+}
+
 // 退分（生成失败等场景）：事务 + 正向流水
 export async function creditPoints(
   userId: number,

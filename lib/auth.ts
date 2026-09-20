@@ -30,6 +30,26 @@ export function isStaff(role: string | undefined | null): boolean {
   return role === "admin" || role === "developer";
 }
 
+/* ---------- 昵称净化（v17.7） ---------- */
+/**
+ * 昵称统一净化：剥离控制字符/零宽字符、折叠连续空白、trim、按长度截断。
+ *
+ * 为什么必须做：昵称不只在页面里展示（React 会转义），它还会被拼进
+ *   - 欢迎邮件的 **Subject 头** 与 **HTML 正文**（lib/mailer.ts）
+ *   - 通知标题、审计日志行
+ * 而 5 个入口里有 3 个是**第三方 OAuth 返回的昵称**（GitHub / Gitee / QQ），
+ * 完全不受我方控制。实测 nodemailer 会把 CRLF 编码掉（不会造成邮件头注入），
+ * 但这属于「依赖下游库兜底」——入口处过滤才是根因收口（第 7 轮巡检加固）。
+ */
+export function cleanNickname(raw: unknown, max = 20): string {
+  return String(raw ?? "")
+    // C0/C1 控制字符 + BOM + 零宽字符 + 行分隔符（\r\n\t 一并去掉）
+    .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028\u2029\ufeff]/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim()
+    .slice(0, max);
+}
+
 /* ---------- 懒迁移：sessions / audit_logs 表 + users 2FA 列（老库平滑升级） ---------- */
 const gSec = globalThis as typeof globalThis & { __inkSecReady?: boolean };
 export async function ensureSecurityTables(pool: NonNullable<Awaited<ReturnType<typeof getPool>>>): Promise<void> {

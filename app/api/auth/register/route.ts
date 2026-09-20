@@ -2,7 +2,7 @@
 // 密码要求：至少 8 位且同时含字母与数字；验证码 10 分钟有效、5 次尝试上限
 import { NextResponse } from "next/server";
 import { dbEnabled } from "@/lib/db";
-import { hashPassword, setSessionCookie } from "@/lib/auth";
+import { hashPassword, setSessionCookie, cleanNickname } from "@/lib/auth";
 import { clientIp, clientUa } from "@/lib/audit";
 
 export async function POST(req: Request) {
@@ -18,12 +18,15 @@ export async function POST(req: Request) {
     password?: string;
     code?: string;
   };
-  const nickname = (body.nickname ?? "").trim();
+  // v17.7：昵称统一净化（控制字符/零宽字符）——它会进欢迎邮件的 Subject 与 HTML 正文。
+  // 长度校验仍按原始输入判定，错误文案与顺序不变。
+  const rawNickname = (body.nickname ?? "").trim();
+  const nickname = cleanNickname(rawNickname);
   const email = (body.email ?? "").trim().toLowerCase();
   const password = body.password ?? "";
   const code = (body.code ?? "").trim();
 
-  if (!nickname || nickname.length > 20) {
+  if (!nickname || rawNickname.length > 20) {
     return NextResponse.json({ error: "昵称必填且不超过 20 字" }, { status: 400 });
   }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {

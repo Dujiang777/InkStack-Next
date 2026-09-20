@@ -6,11 +6,16 @@
 //   cycleDay = ((连签数 - 1) % 7) + 1
 //   第 1-2 天 +10，第 3-6 天 +20，第 7 天收官 +40；第 8 天起新周期重置回 +10。
 //   → 经济收紧：每轮 10,10,20,20,20,20,40 = 140 点，主补给走充值。
-// 加分走 creditPoints 事务，加分失败回滚签到行让用户可重试。自然日按服务器本地时区。
+//
+// v17.4：签到行与发墨收进**同一事务**。原实现是「INSERT checkins → creditPoints」两段式，
+//   发墨失败时靠一条额外的 DELETE 补偿；一旦该 DELETE 自身也失败（DB 抖动/重启发生在
+//   两条语句之间），签到行留下、墨没到账，用户当天既拿不到奖励也签不了到（唯一键占位），
+//   且未捕获的异常会直接冒成 500。现在任一步失败即整体回滚，用户可原样重试。
+// 自然日按服务器本地时区。
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getPool, dbEnabled } from "@/lib/db";
-import { creditPoints } from "@/lib/points";
+import { creditPointsOn } from "@/lib/points";
 
 const CYCLE_DAYS = 7;
 
@@ -98,44 +103,59 @@ export async function POST() {
   const pool = await getPool();
   if (!pool) return NextResponse.json({ error: "数据库暂不可用" }, { status: 503 });
 
-  try {
-    await pool.query("INSERT INTO checkins (user_id, checkin_date) VALUES (?, ?)", [
-      user.id,
-      todayKey(),
-    ]);
-  } catch (e) {
-    const code = (e as { code?: string }).code;
-    if (code === "ER_DUP_ENTRY") {
-      const s = await statusPayload(user.id);
-      return NextResponse.json({ ok: false, already: true, balance: user.points, ...s });
-    }
-    return NextResponse.json({ error: "签到失败，请稍后再试" }, { status: 500 });
-  }
-
-  const s = await statusPayload(user.id);
-  const cycleDay = s ? cycleDayOf(s.streak) : 1;
+  // 连签数在插入今天这行之前算 → 即「昨天为止的连签数」，今天签完 = 该值 + 1
+  // （与旧实现「先插入再 calcStreak」得到的数字完全一致，奖励档位不变）
+  const streakBefore = await calcStreak(pool, user.id);
+  const streakAfter = streakBefore + 1;
+  const cycleDay = cycleDayOf(streakAfter);
   const reward = rewardForCycleDay(cycleDay);
-  const credited = await creditPoints(
-    user.id,
-    reward,
-    `每日签到·周期第${cycleDay}天`
-  );
-  if (!credited.ok) {
-    // 补偿：积分没发出去就把签到行删掉，让用户今天还能重试
-    await pool.query("DELETE FROM checkins WHERE user_id = ? AND checkin_date = ?", [
+
+  const conn = await pool.getConnection();
+  let balance = user.points;
+  try {
+    await conn.beginTransaction();
+    try {
+      await conn.query("INSERT INTO checkins (user_id, checkin_date) VALUES (?, ?)", [
+        user.id,
+        todayKey(),
+      ]);
+    } catch (e) {
+      await conn.rollback();
+      if ((e as { code?: string }).code === "ER_DUP_ENTRY") {
+        // 今天已签（含并发双击的败者）：唯一键拦下，不产生任何变更
+        const s = await statusPayload(user.id);
+        return NextResponse.json({ ok: false, already: true, balance: user.points, ...s });
+      }
+      return NextResponse.json({ error: "签到失败，请稍后再试" }, { status: 500 });
+    }
+    // 发墨与签到行同事务：发不出去就整体回滚，用户可重试
+    const okCredit = await creditPointsOn(
+      conn,
       user.id,
-      todayKey(),
-    ]);
-    return NextResponse.json({ error: "墨水发放失败，请重试" }, { status: 500 });
+      reward,
+      `每日签到·周期第${cycleDay}天`
+    );
+    if (!okCredit) {
+      await conn.rollback();
+      return NextResponse.json({ error: "墨水发放失败，请重试" }, { status: 500 });
+    }
+    const [after] = await conn.query("SELECT points_balance FROM users WHERE id = ?", [user.id]);
+    balance = Number((after as Record<string, unknown>[])[0]?.points_balance ?? 0);
+    await conn.commit();
+  } catch {
+    await conn.rollback().catch(() => {});
+    return NextResponse.json({ error: "签到失败，请稍后再试" }, { status: 500 });
+  } finally {
+    conn.release();
   }
 
   return NextResponse.json({
     ok: true,
     reward,
-    balance: credited.balance ?? user.points + reward,
-    streak: s?.streak ?? 1,
+    balance,
+    streak: streakAfter,
     cycleDay,
     checkedInToday: true,
-    next: nextTier(s?.streak ?? 1),
+    next: nextTier(streakAfter),
   });
 }

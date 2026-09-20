@@ -4,6 +4,21 @@
 // 并仅在响应里附带 devCode 供本地测试（生产配置 SMTP 后该字段自动消失）。
 import { createTransport, getTestMessageUrl } from "nodemailer";
 
+/** v17.7：邮件 HTML 正文出口转义。昵称等用户可控值会拼进 HTML 模板，
+ *  入口侧已由 lib/auth.ts 的 cleanNickname 过滤控制字符，这里再对 HTML 元字符兜底。 */
+function escHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+/** 单行化：Subject / text 里绝不允许出现 CR/LF（防邮件头与正文结构被改写） */
+function oneLine(s: string): string {
+  return s.replace(/[\r\n\u2028\u2029]+/g, " ").replace(/\s{2,}/g, " ").trim();
+}
+
 export function smtpConfigured(): boolean {
   return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
 }
@@ -60,8 +75,11 @@ export async function sendVerifyCode(
 
 /** 注册欢迎邮件（营销/引导；失败静默，不阻塞注册主流程） */
 export async function sendWelcomeEmail(email: string, nickname: string): Promise<void> {
+  // v17.7：昵称可控 → Subject/text 单行化、HTML 正文转义（防头注入与 HTML 注入）
+  const safeSubject = oneLine(nickname);
+  const safeHtml = escHtml(nickname);
   if (!smtpConfigured()) {
-    console.log(`[mailer:dev] 欢迎邮件 -> ${email}（${nickname}）；配置 SMTP_* 后真发`);
+    console.log(`[mailer:dev] 欢迎邮件 -> ${email}（${safeSubject}）；配置 SMTP_* 后真发`);
     return;
   }
   try {
@@ -75,11 +93,11 @@ export async function sendWelcomeEmail(email: string, nickname: string): Promise
     await transport.sendMail({
       from: FROM,
       to: email,
-      subject: `【墨栈】欢迎入驻，${nickname} —— 研墨开查，落笔为栈`,
-      text: `${nickname}，欢迎入驻墨栈 InkStack！\n\n这里有三件事值得一试：\n1. 读文章——好稿子值得慢研，付费专栏稿支持作者持续写作；\n2. 提问——每篇文章右侧挂着作者 AI 分身，5 滴墨一问，作者本人的口吻回答；\n3. 写作——创作台支持导入 Markdown，写完投递社区审核即可公开。\n\n书房入口：/study（你的创作与收益都在这里）\n安全中心：/security（改密、两步验证、设备管理）\n\n—— 墨栈 InkStack`,
+      subject: `【墨栈】欢迎入驻，${safeSubject} —— 研墨开查，落笔为栈`,
+      text: `${safeSubject}，欢迎入驻墨栈 InkStack！\n\n这里有三件事值得一试：\n1. 读文章——好稿子值得慢研，付费专栏稿支持作者持续写作；\n2. 提问——每篇文章右侧挂着作者 AI 分身，5 滴墨一问，作者本人的口吻回答；\n3. 写作——创作台支持导入 Markdown，写完投递社区审核即可公开。\n\n书房入口：/study（你的创作与收益都在这里）\n安全中心：/security（改密、两步验证、设备管理）\n\n—— 墨栈 InkStack`,
       html: `<div style="font-family:Georgia,serif;max-width:480px;margin:0 auto;padding:28px;border:2px solid #26221c;">
   <p style="letter-spacing:.2em;color:#8a5a12;font-size:12px;margin:0 0 6px;">INKSTACK · 墨栈</p>
-  <h2 style="margin:0 0 12px;">欢迎入驻，${nickname}</h2>
+  <h2 style="margin:0 0 12px;">欢迎入驻，${safeHtml}</h2>
   <p style="font-size:14px;line-height:1.8;margin:0 0 12px;">研墨开查，落笔为栈。刚来的话，有三件事值得一试：</p>
   <ol style="font-size:14px;line-height:1.9;margin:0 0 12px;padding-left:20px;">
     <li><b>读文章</b>——好稿子值得慢研，付费专栏稿支持作者持续写作；</li>

@@ -1,10 +1,14 @@
 // POST /api/ai/write — AI 写作助手（续写 / 润色 / 起标题 / 推荐选题）
 // 链路：Next.js → AgentScope 服务 /ai/write（ReActAgent + DeepSeek，文风注入 system prompt）
-// 计费（分档）：续写 15 · 润色 10 · 起标题 5 · 推荐选题 5（DB 模式登录用户，事务+流水；生成失败自动退分）
-// 降级：Python 服务未启动或非 live → 返回内置模板文本（退回已扣积分）
+// 计费（分档）：续写 15 · 润色 10 · 起标题 5 · 推荐选题 5（DB 模式登录用户，事务+流水）
+// v17.4 计费口径整改：原来「先扣后生成 + 失败 creditPoints 补偿」是两段式，
+//   补偿本身失败即永久丢墨，且兜底模板也会先扣后用（文案还谎报"已退回"）。
+//   现改为「只读探针预检 → 上游确认可用后才扣」，彻底去掉补偿路径，
+//   模板兜底不再扣墨。钱只在真实产出时动一次，不存在需要回滚的中间态。
+// 降级：Python 服务未启动或非 live → 返回内置模板文本（不扣积分）
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { spendPoints, creditPoints } from "@/lib/points";
+import { spendPoints, peekBalance } from "@/lib/points";
 import { dbEnabled } from "@/lib/db";
 
 const LABELS: Record<string, string> = {
@@ -50,20 +54,22 @@ export async function POST(req: Request) {
   const author = (body.author ?? "博主").trim();
   const cost = PRICES[mode];
 
-  // DB 模式：登录 + 按档预扣积分（失败自动退回）
-  let userId: number | null = null;
+  // DB 模式：登录 + 只读余额预检（真正扣款延后到「上游确认可用」之后）
+  let user: { id: number } | null = null;
   let pointsNote = "演示模式 · 不扣墨水";
   if (dbEnabled()) {
-    const user = await getCurrentUser();
-    if (!user) {
+    const u = await getCurrentUser();
+    if (!u) {
       return NextResponse.json({ error: "登录后才能使用 AI 写作助手" }, { status: 401 });
     }
-    const spend = await spendPoints(user.id, cost, `AI写作·${LABELS[mode]}`);
-    if (!spend.ok) {
-      return NextResponse.json({ error: spend.error }, { status: 402 });
+    const bal = await peekBalance(u.id);
+    if (bal < cost) {
+      return NextResponse.json(
+        { error: `积分不足（余额 ${bal}，本次需 ${cost}）` },
+        { status: 402 }
+      );
     }
-    userId = user.id;
-    pointsNote = `已扣 ${cost} 滴墨水 · 余额 ${spend.balance}`;
+    user = { id: u.id };
   }
 
   // 首选 AgentScope 服务真实生成
@@ -79,6 +85,15 @@ export async function POST(req: Request) {
       if (upstream.ok) {
         const data = (await upstream.json()) as { text?: string };
         if (typeof data.text === "string" && data.text.trim()) {
+          // 上游确认产出 → 此时才扣费。扣费失败（并发花超）则不下发内容，
+          // 保证「付了钱才有货、货出了必然付了钱」。
+          if (user) {
+            const spend = await spendPoints(user.id, cost, `AI写作·${LABELS[mode]}`);
+            if (!spend.ok) {
+              return NextResponse.json({ error: spend.error }, { status: 402 });
+            }
+            pointsNote = `已扣 ${cost} 滴墨水 · 余额 ${spend.balance}`;
+          }
           return NextResponse.json({
             label: LABELS[mode],
             text: data.text,
@@ -94,11 +109,8 @@ export async function POST(req: Request) {
     }
   }
 
-  // 生成未成功：已扣的积分退回
-  if (userId) {
-    const back = await creditPoints(userId, cost, "AI写作失败退还");
-    pointsNote = `生成失败，${cost} 滴墨水已退回${back.balance !== undefined ? ` · 余额 ${back.balance}` : ""}`;
-  }
+  // 模板兜底：内容不是真实生成，不扣积分
+  if (user) pointsNote = "模板兜底 · 本次不扣墨水";
 
   return NextResponse.json({
     label: LABELS[mode],

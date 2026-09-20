@@ -9,7 +9,7 @@ import { randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { getPool, dbEnabled } from "@/lib/db";
-import { setSessionCookie } from "@/lib/auth";
+import { setSessionCookie, cleanNickname } from "@/lib/auth";
 
 function fail(reason: string): NextResponse {
   return NextResponse.redirect(new URL(`/login?oauth=qq&err=${reason}`, process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3100"));
@@ -66,7 +66,8 @@ export async function GET(req: Request) {
     const infoRes = await fetch(infoUrl.toString());
     const info = (await infoRes.json()) as { ret?: number; nickname?: string; gender?: string };
     if (info.ret !== 0) return fail("profile");
-    const nickname = (info.nickname || `QQ用户${openid.slice(0, 6)}`).slice(0, 20);
+    // v17.7：第三方返回的昵称不受我方控制 → 统一净化后再入库/发信
+    const nickname = cleanNickname(info.nickname || `QQ用户${openid.slice(0, 6)}`);
     const avatarText = nickname.slice(0, 1).toUpperCase();
     // 邮箱兜底：QQ 不给邮箱，openid 对同一应用恒定，可保证唯一键 + 复登同一账号
     const email = `${openid}@qq.noreply.inkstack.dev`;

@@ -14,7 +14,7 @@
 import { NextResponse } from "next/server";
 import { getPool, dbEnabled } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
-import { spendPoints, creditPoints } from "@/lib/points";
+import { spendPoints, peekBalance } from "@/lib/points";
 import { retrieveSnippets, type Snippet } from "@/lib/rag";
 
 const QA_COST = 5; // 分身问答单价（经济收紧后由 2 上调至 5）
@@ -100,6 +100,17 @@ export async function POST(req: Request) {
     if (pool && !viewer) {
       return NextResponse.json({ error: "登录后才能与分身对话" }, { status: 401 });
     }
+    // v17.4：只读余额预检 —— 余额不足在这里就 402，不白耗上游 LLM token；
+    // 真正的扣款仍在本行下方「上游确认可达」之后执行。
+    if (pool && viewer) {
+      const bal = await peekBalance(viewer.id);
+      if (bal < QA_COST) {
+        return NextResponse.json(
+          { error: `墨水不足（余额 ${bal}，本次需 ${QA_COST}）` },
+          { status: 402 }
+        );
+      }
+    }
     // 先尝试透传；扣费放在透传成功后 —— 服务未启动时静默落回，
     // 演示模式不被扣费墙拦截。
     try {
@@ -110,9 +121,11 @@ export async function POST(req: Request) {
         signal: AbortSignal.timeout(60_000),
       });
       if (upstream.ok && upstream.body) {
-        if (pool) {
-          const spend = await spendPoints(viewer!.id, QA_COST, "分身问答");
+        if (pool && viewer) {
+          const spend = await spendPoints(viewer.id, QA_COST, "分身问答");
           if (!spend.ok) {
+            // 并发花超：放弃这条上游流，不下发任何增量（未收费，无需回滚）
+            await upstream.body.cancel().catch(() => {});
             return NextResponse.json({ error: spend.error }, { status: 402 });
           }
           pool
@@ -136,16 +149,18 @@ export async function POST(req: Request) {
     }
   }
 
-  // ② Node 内置模式：live 模式要求登录并扣 QA_COST 积分（与 AgentScope 服务侧同一策略）
+  // ② Node 内置模式：live 模式要求登录，并做只读余额预检（扣款在下方流内、
+  //    上游确认可用后才执行 —— 与 AgentScope 通道同一策略）
   if (live) {
     if (!viewer) {
       return NextResponse.json({ error: "登录后才能与分身对话" }, { status: 401 });
     }
-    {
-      const spend = await spendPoints(viewer.id, QA_COST, "分身问答");
-      if (!spend.ok) {
-        return NextResponse.json({ error: spend.error }, { status: 402 });
-      }
+    const bal = await peekBalance(viewer.id);
+    if (bal < QA_COST) {
+      return NextResponse.json(
+        { error: `墨水不足（余额 ${bal}，本次需 ${QA_COST}）` },
+        { status: 402 }
+      );
     }
   }
 
@@ -154,14 +169,9 @@ export async function POST(req: Request) {
       async start(controller) {
         const push = (obj: Record<string, unknown>) =>
           controller.enqueue(enc.encode(JSON.stringify(obj) + "\n"));
-        // v17.0：扣费后上游失败 → 自动退还本次问答点墨，防「扣墨拿不到回答」
-        let refunded = false;
-        const refundOnce = async (why: string) => {
-          if (refunded) return;
-          refunded = true;
-          await creditPoints(viewer!.id, QA_COST, "分身问答失败退还");
-          push({ type: "error", message: `${why}，${QA_COST} 点墨已退回` });
-        };
+        // v17.4：去掉「先扣后退」的补偿路径 —— 扣费推迟到「DeepSeek 确认可流式返回」
+        // 之后执行，不存在需要退还的中间态，也就没有「退还失败即永久丢墨」的窗口。
+        let charged = false;
         try {
           // v17.2：传入提问者，未解锁的付费文不进入检索语料（防分身复述付费正文）
           const snippets = await retrieveSnippets(pool!, question, viewer?.id ?? null);
@@ -184,10 +194,19 @@ export async function POST(req: Request) {
             }),
           });
           if (!res.ok || !res.body) {
-            await refundOnce(`DeepSeek API ${res.status}`);
+            push({ type: "error", message: `AI 服务暂不可用（DeepSeek API ${res.status}），本次未扣墨水` });
             controller.close();
             return;
           }
+          // 上游确认可用 → 此刻才扣费（唯一一次账面变动）
+          const spend = await spendPoints(viewer!.id, QA_COST, "分身问答");
+          if (!spend.ok) {
+            await res.body.cancel().catch(() => {});
+            push({ type: "error", message: spend.error ?? "墨水不足" });
+            controller.close();
+            return;
+          }
+          charged = true;
           // 解析上游 SSE → 转发为 NDJSON delta
           const reader = res.body.getReader();
           const dec = new TextDecoder();
@@ -230,7 +249,11 @@ export async function POST(req: Request) {
             );
           } catch { /* 流水失败不阻塞回答 */ }
         } catch (e) {
-          await refundOnce(e instanceof Error ? e.message.slice(0, 80) : "服务异常");
+          const why = e instanceof Error ? e.message.slice(0, 80) : "服务异常";
+          push({
+            type: "error",
+            message: charged ? `${why}（本次问答已按成功计费）` : `${why}，本次未扣墨水`,
+          });
         } finally {
           controller.close();
         }

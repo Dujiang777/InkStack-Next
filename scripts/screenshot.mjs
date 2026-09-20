@@ -1,9 +1,29 @@
 // 视觉自检工具：playwright-core 直驱本地 Chrome（无需下载浏览器）
-// 用法：node scripts/screenshot.mjs <url路径> <输出.png> [--width 1280] [--height 900] [--no-login]
-// 登录账号走 .env 本地测试号（默认 test@inkstack.dev），登录后访问目标页并整页截图
-import { existsSync } from "node:fs";
+// 用法：node scripts/screenshot.mjs <url路径> <输出.png> [--width 1280] [--height 900] [--no-login] [--user test|writer1]
+// 登录账号从本地 .env 读取（见 .env.example）——测试口令不进版本库：
+//   INK_TEST_EMAIL / INK_TEST_PASSWORD      （--user test，默认）
+//   INK_WRITER_EMAIL / INK_WRITER_PASSWORD  （--user writer1）
+// 未配置对应变量时以游客视角截图并给出提示（--no-login 跳过登录）。
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
+
+// 极简 .env 读取：只为本脚本取测试账号，避免把口令硬编码进版本库
+function loadEnvFile() {
+  const out = {};
+  try {
+    const txt = readFileSync(path.join(process.cwd(), ".env"), "utf8");
+    for (const line of txt.split(/\r?\n/)) {
+      const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/);
+      if (!m || line.trim().startsWith("#")) continue;
+      out[m[1]] = m[2].replace(/^["']|["']$/g, "");
+    }
+  } catch {
+    /* 无 .env（演示模式）→ 走游客视角 */
+  }
+  return out;
+}
+const ENV = { ...loadEnvFile(), ...process.env };
 
 // playwright-core 从托管 Node 工作区解析（ESM 不认 NODE_PATH，用 createRequire 桥接）
 const WS_NM = "C:/Users/AMBITIOUS_YUAN/.workbuddy/binaries/node/workspace/node_modules";
@@ -44,15 +64,20 @@ const page = await ctx.newPage();
 
 if (!noLogin) {
   // 页面上下文内直接调登录 API，会话 Cookie 自动落在浏览器上下文；--user 可切换账号
+  // v17.5：口令不再硬编码（原文件含明文 admin 口令，随开源仓库泄露）——改从 .env 读取
   const users = {
-    test: { email: "test@inkstack.dev", password: "test12345" },
-    writer1: { email: "writer1@inkstack.dev", password: "writer123" },
+    test: { email: ENV.INK_TEST_EMAIL, password: ENV.INK_TEST_PASSWORD },
+    writer1: { email: ENV.INK_WRITER_EMAIL, password: ENV.INK_WRITER_PASSWORD },
   };
   const who = argOf("--user", "test");
-  const resp = await page.request.post(`${base}/api/auth/login`, {
-    data: users[who] ?? users.test,
-  });
-  if (!resp.ok()) console.warn("[shot] 登录失败:", resp.status(), "将以游客视角截图");
+  const cred = users[who] ?? users.test;
+  const keys = who === "writer1" ? "INK_WRITER_EMAIL / INK_WRITER_PASSWORD" : "INK_TEST_EMAIL / INK_TEST_PASSWORD";
+  if (!cred?.email || !cred?.password) {
+    console.warn(`[shot] 未配置 ${keys}（见 .env.example），将以游客视角截图`);
+  } else {
+    const resp = await page.request.post(`${base}/api/auth/login`, { data: cred });
+    if (!resp.ok()) console.warn("[shot] 登录失败:", resp.status(), "将以游客视角截图");
+  }
 }
 
 await page.goto(base + route, { waitUntil: "networkidle", timeout: 30000 }).catch(() => {});

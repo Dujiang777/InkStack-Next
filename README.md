@@ -1,7 +1,11 @@
 # 墨栈 InkStack · AI 原生博客平台
 
+**简体中文** · [English](.github/README.md)
+
 > 博主有 AI 分身、读者能和文章对话、创作能变现、平台自己会运营。
 > 一套用 Next.js 15 写完前后端的个人博客/内容社区，自带杂志编辑风设计系统。
+
+> GitHub 镜像仓库：https://github.com/Dujiang777/InkStack-Next
 
 ## 🖼 效果预览
 

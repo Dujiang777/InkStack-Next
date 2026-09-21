@@ -6,6 +6,7 @@ import { getPool, dbEnabled } from "@/lib/db";
 import { notify } from "@/lib/notify";
 import { grantCappedReward } from "@/lib/points";
 import { ensurePaidColumns, parseDiscount } from "@/lib/data";
+import { asText } from "@/lib/text";
 
 export async function PUT(req: Request, { params }: { params: Promise<{ slug: string }> }) {
   const user = await getCurrentUser();
@@ -27,9 +28,9 @@ export async function PUT(req: Request, { params }: { params: Promise<{ slug: st
     draft?: boolean;
     publish?: boolean;
   };
-  const title = (body.title ?? "").trim().slice(0, 200);
-  const md = (body.md ?? "").trim();
-  const summary = (body.summary ?? "").trim().slice(0, 500) || null;
+  const title = asText(body.title).trim().slice(0, 200);
+  const md = asText(body.md).trim();
+  const summary = asText(body.summary).trim().slice(0, 500) || null;
   const tags =
     Array.isArray(body.tags) && body.tags.length
       ? body.tags.slice(0, 6).map((t) => String(t).slice(0, 20))
@@ -69,7 +70,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ slug: st
            SET title = ?, md_content = ?, summary = ?, tags = ?, cover_label = ?, unlock_price = ?,
                discount_price = ?, discount_until = ?
          WHERE id = ?`,
-        [title, md, summary, JSON.stringify(tags), (body.coverLabel ?? "").trim().slice(0, 32) || "新稿", unlockPrice, discount[0], discount[1], art.id]
+        [title, md, summary, JSON.stringify(tags), asText(body.coverLabel).trim().slice(0, 32) || "新稿", unlockPrice, discount[0], discount[1], art.id]
       );
       return NextResponse.json({ ok: true, draft: true });
     }
@@ -94,7 +95,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ slug: st
                review_status = ?, review_note = NULL,
                published_at = IF(? = 1 AND published_at IS NULL, NOW(), published_at)
          WHERE id = ?`,
-        [title, md, summary, JSON.stringify(tags), (body.coverLabel ?? "").trim().slice(0, 32) || "新稿", unlockPrice, discount[0], discount[1], reviewStatus, wasDraft ? 1 : 0, art.id]
+        [title, md, summary, JSON.stringify(tags), asText(body.coverLabel).trim().slice(0, 32) || "新稿", unlockPrice, discount[0], discount[1], reviewStatus, wasDraft ? 1 : 0, art.id]
       );
     }
 

@@ -7,6 +7,7 @@ import { getCurrentUser, isStaff } from "@/lib/auth";
 import { getPool, dbEnabled } from "@/lib/db";
 import { makeSlug } from "@/lib/importer";
 import { grantCappedReward } from "@/lib/points";
+import { asText } from "@/lib/text";
 
 export async function GET() {
   const articles = await listArticles();
@@ -118,9 +119,9 @@ export async function POST(req: Request) {
     discountUntil?: string | null;
     draft?: boolean;
   };
-  const title = (body.title ?? "").trim().slice(0, 200);
-  const md = (body.md ?? "").trim();
-  const summary = (body.summary ?? "").trim().slice(0, 500) || null;
+  const title = asText(body.title).trim().slice(0, 200);
+  const md = asText(body.md).trim();
+  const summary = asText(body.summary).trim().slice(0, 500) || null;
   const tags = Array.isArray(body.tags) && body.tags.length
     ? body.tags.slice(0, 6).map((t) => String(t).slice(0, 20))
     : ["创作"];
@@ -144,7 +145,7 @@ export async function POST(req: Request) {
       title,
       md,
       summary,
-      coverLabel: (body.coverLabel ?? "").trim().slice(0, 32) || "新稿",
+      coverLabel: asText(body.coverLabel).trim().slice(0, 32) || "新稿",
       tags,
       unlockPrice,
       discountPrice: discount[0],

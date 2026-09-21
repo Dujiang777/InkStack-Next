@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { dbEnabled } from "@/lib/db";
 import { hashPassword, setSessionCookie, cleanNickname } from "@/lib/auth";
 import { clientIp, clientUa } from "@/lib/audit";
+import { asText } from "@/lib/text";
 
 export async function POST(req: Request) {
   if (!dbEnabled()) {
@@ -20,11 +21,11 @@ export async function POST(req: Request) {
   };
   // v17.7：昵称统一净化（控制字符/零宽字符）——它会进欢迎邮件的 Subject 与 HTML 正文。
   // 长度校验仍按原始输入判定，错误文案与顺序不变。
-  const rawNickname = (body.nickname ?? "").trim();
+  const rawNickname = asText(body.nickname).trim();
   const nickname = cleanNickname(rawNickname);
-  const email = (body.email ?? "").trim().toLowerCase();
-  const password = body.password ?? "";
-  const code = (body.code ?? "").trim();
+  const email = asText(body.email).trim().toLowerCase();
+  const password = asText(body.password);
+  const code = asText(body.code).trim();
 
   if (!nickname || rawNickname.length > 20) {
     return NextResponse.json({ error: "昵称必填且不超过 20 字" }, { status: 400 });

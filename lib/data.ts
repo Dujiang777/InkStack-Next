@@ -2,6 +2,7 @@
 // 这样个人开发者可以先把界面跑起来，再接数据库
 import { getPool } from "./db";
 import { demoArticles, demoComments, type DemoArticle, type DemoComment } from "./demo-data";
+import { asText, asTextOr } from "./text";
 
 /* ---------- 数据库可重试错误（v18.0） ----------
  * InnoDB 的死锁与锁等待超时属于**可重试**错误：官方建议由应用侧重放整个语句/事务。
@@ -581,8 +582,10 @@ export async function addComment(
   input: { nickname: string; content: string; parentId?: number | null },
   user?: { id: number; nickname: string } // 传入则绑定账号，昵称以账号为准
 ): Promise<{ ok: boolean; error?: string; id?: number; createdAt?: string }> {
-  const nickname = (user?.nickname ?? input.nickname).trim().slice(0, 20) || "访客";
-  const content = input.content.trim();
+  // v18.1：入参走 asText —— 路由层已归一，这里再兜一层，
+  // 保证 addComment 无论被谁调用都不会因非字符串入参抛 TypeError。
+  const nickname = asText(user?.nickname ?? input.nickname).trim().slice(0, 20) || "访客";
+  const content = asText(input.content).trim();
   if (!content) return { ok: false, error: "评论内容不能为空" };
   if (content.length > 1000) return { ok: false, error: "评论最长 1000 字" };
 
@@ -849,11 +852,11 @@ export async function adminReviewArticle(
 ): Promise<{ ok: boolean; error?: string; authorId?: number }> {
   const pool = await getPool();
   if (!pool) return { ok: false, error: "数据库不可用" };
-  if (decision === "reject" && !(note ?? "").trim()) {
+  if (decision === "reject" && !asText(note).trim()) {
     return { ok: false, error: "驳回必须填写原因" };
   }
   const reviewStatus = decision === "approve" ? "approved" : "rejected";
-  const reviewNote = decision === "approve" ? null : (note ?? "").trim().slice(0, 255);
+  const reviewNote = decision === "approve" ? null : asText(note).trim().slice(0, 255);
   const [rows] = await pool.query(
     `UPDATE articles SET review_status = ?, review_note = ? WHERE slug = ?`,
     [reviewStatus, reviewNote, slug]
@@ -1183,17 +1186,17 @@ export async function adminHandleReport(
         await conn.query(`DELETE FROM comments WHERE id = ?`, [rep.targetId]);
       }
       await conn.query(`UPDATE reports SET status='resolved', handle_note=?, handled_at=NOW() WHERE id = ?`, [
-        (note ?? "已删除被举报内容").slice(0, 255),
+        asTextOr(note, "已删除被举报内容").slice(0, 255),
         reportId,
       ]);
     } else if (handle === "keep") {
       await conn.query(`UPDATE reports SET status='resolved', handle_note=?, handled_at=NOW() WHERE id = ?`, [
-        (note ?? "核查后保留内容").slice(0, 255),
+        asTextOr(note, "核查后保留内容").slice(0, 255),
         reportId,
       ]);
     } else {
       await conn.query(`UPDATE reports SET status='dismissed', handle_note=?, handled_at=NOW() WHERE id = ?`, [
-        (note ?? "无效举报").slice(0, 255),
+        asTextOr(note, "无效举报").slice(0, 255),
         reportId,
       ]);
     }
@@ -1220,7 +1223,7 @@ export async function logAdminAction(
   try {
     await pool.query(
       `INSERT INTO admin_actions (admin_id, action, target_type, target_id, detail) VALUES (?, ?, ?, ?, ?)`,
-      [adminId, action.slice(0, 64), targetType.slice(0, 32), String(targetId).slice(0, 64), detail?.slice(0, 500) ?? null]
+      [adminId, action.slice(0, 64), targetType.slice(0, 32), String(targetId).slice(0, 64), typeof detail === "string" ? detail.slice(0, 500) : null]
     );
   } catch {
     /* 日志失败静默 */
@@ -2569,8 +2572,8 @@ export async function createSeries(authorId: number, title: string, description:
   await ensureSeriesTables(pool);
   const [res] = await pool.query(`INSERT INTO series (author_id, title, description) VALUES (?, ?, ?)`, [
     authorId,
-    title.slice(0, 120),
-    description.slice(0, 500),
+    asText(title).slice(0, 120),
+    asText(description).slice(0, 500),
   ]);
   return Number((res as { insertId: bigint | number }).insertId) || null;
 }
@@ -2588,11 +2591,11 @@ export async function updateSeriesMeta(
   const args: unknown[] = [];
   if (patch.title !== undefined) {
     sets.push("title = ?");
-    args.push(patch.title.slice(0, 120));
+    args.push(asText(patch.title).slice(0, 120));
   }
   if (patch.description !== undefined) {
     sets.push("description = ?");
-    args.push(patch.description.slice(0, 500));
+    args.push(asText(patch.description).slice(0, 500));
   }
   if (patch.bundlePrice !== undefined) {
     // null/0 = 关闭打包；1-99999 = 一口价

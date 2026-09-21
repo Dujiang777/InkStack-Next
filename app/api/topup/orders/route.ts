@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { dbEnabled } from "@/lib/db";
 import { createOrder, PACKS } from "@/lib/topup";
+import { asText } from "@/lib/text";
 
 export async function GET() {
   return NextResponse.json({ packs: PACKS });
@@ -14,7 +15,7 @@ export async function POST(req: Request) {
   if (!dbEnabled()) return NextResponse.json({ error: "充值需要 MySQL" }, { status: 503 });
 
   const body = (await req.json().catch(() => ({}))) as { packKey?: string };
-  const r = await createOrder(user.id, (body.packKey ?? "").trim());
+  const r = await createOrder(user.id, asText(body.packKey).trim());
   if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
   return NextResponse.json({ ok: true, orderNo: r.orderNo, pack: r.pack });
 }

@@ -8,6 +8,7 @@ import { getCurrentUser, verifyPassword } from "@/lib/auth";
 import { generateTotpSecret, verifyTotp, otpauthUrl, generateBackupCodes } from "@/lib/totp";
 import { logAudit, clientIp, clientUa } from "@/lib/audit";
 import * as rl from "@/lib/rate-limit";
+import { asText } from "@/lib/text";
 
 export async function POST(req: Request) {
   if (!dbEnabled()) return NextResponse.json({ error: "演示模式下不可用" }, { status: 501 });
@@ -41,7 +42,7 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: "尝试过于频繁，请 15 分钟后再试" }, { status: 429 });
   }
   const body = (await req.json().catch(() => ({}))) as { code?: string };
-  const code = (body.code ?? "").trim();
+  const code = asText(body.code).trim();
   const pool = await getPool();
   if (!pool) return NextResponse.json({ error: "数据库不可用" }, { status: 500 });
   const [rows] = await pool.query("SELECT totp_secret, totp_enabled FROM users WHERE id = ? LIMIT 1", [me.id]);
@@ -79,11 +80,11 @@ export async function DELETE(req: Request) {
   const u = (rows as Record<string, unknown>[])[0];
   if (!u) return NextResponse.json({ error: "用户不存在" }, { status: 404 });
   if (Number(u.totp_enabled) !== 1) return NextResponse.json({ error: "两步验证未开启" }, { status: 400 });
-  if (!verifyPassword(body.password ?? "", String(u.password_hash))) {
+  if (!verifyPassword(asText(body.password), String(u.password_hash))) {
     const after = rl.hit(key);
     return NextResponse.json({ error: `密码不正确（还可尝试 ${5 - after.fails} 次）` }, { status: 401 });
   }
-  if (!verifyTotp(String(u.totp_secret), body.code ?? "")) {
+  if (!verifyTotp(String(u.totp_secret), asText(body.code))) {
     const after = rl.hit(key);
     return NextResponse.json({ error: `验证码不正确（还可尝试 ${5 - after.fails} 次）` }, { status: 401 });
   }

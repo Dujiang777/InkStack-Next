@@ -60,7 +60,7 @@ A complete personal blog and content community — front end and back end — wr
 - Site-wide API rate limiting (120 req/min) and CSP / COOP / CORP / HSTS response headers
 - Have I Been Pwned breached-password check (fail-open), new-device login email alerts, forgot-password invalidates every session
 - Security centre at `/security`: device management, password change, 2FA, audit-event timeline
-- Fully parameterised SQL, XSS filtering with DOMPurify, `LIKE` wildcard escaping
+- Fully parameterised SQL, XSS filtering with DOMPurify, `LIKE` wildcard escaping, and site-wide request-body type coercion (type confusion can no longer produce a 5xx)
 
 ### Roles & operations console
 - Roles: `developer > admin > author > reader`, with a single `isStaff()` check used site-wide

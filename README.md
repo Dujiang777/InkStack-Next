@@ -57,7 +57,7 @@
 - 全站 API 限流（120 req/min）、CSP/COOP/CORP/HSTS 安全响应头
 - HIBP 泄露密码检查（fail-open）、新设备登录邮件提醒、忘记密码全端下线
 - 安全中心 /security：设备管理、改密、2FA、审计事件时间线
-- SQL 全参数化 + XSS 过滤（DOMPurify）+ LIKE 通配符转义
+- SQL 全参数化 + XSS 过滤（DOMPurify）+ LIKE 通配符转义 + 全站入参类型归一（类型混淆不再产生 5xx）
 
 ### 角色体系与运营台
 - 角色：`developer > admin > author > reader`，全站统一 `isStaff()` 判定

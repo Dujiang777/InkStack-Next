@@ -3,6 +3,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { updateSeriesMeta, deleteSeries, setSeriesItems } from "@/lib/data";
+import { asText } from "@/lib/text";
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
@@ -22,11 +23,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (body.title !== undefined || body.description !== undefined || body.bundlePrice !== undefined) {
       const patch: { title?: string; description?: string; bundlePrice?: number | null } = {};
       if (body.title !== undefined) {
-        const t = body.title.trim();
+        const t = asText(body.title).trim();
         if (t.length < 2 || t.length > 60) return NextResponse.json({ error: "专栏题名需 2-60 字" }, { status: 400 });
         patch.title = t;
       }
-      if (body.description !== undefined) patch.description = body.description.trim();
+      if (body.description !== undefined) patch.description = asText(body.description).trim();
       if (body.bundlePrice !== undefined) {
         // null / "" / 0 = 关闭打包；1-99999 = 一口价
         const raw = body.bundlePrice;

@@ -9,6 +9,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { dbEnabled } from "@/lib/db";
 import { payOrder } from "@/lib/topup";
+import { asText } from "@/lib/text";
 
 export async function POST(req: Request) {
   const user = await getCurrentUser();
@@ -16,11 +17,11 @@ export async function POST(req: Request) {
   if (!dbEnabled()) return NextResponse.json({ error: "支付需要 MySQL" }, { status: 503 });
 
   const body = (await req.json().catch(() => ({}))) as { orderNo?: string; channel?: string };
-  const orderNo = (body.orderNo ?? "").trim();
+  const orderNo = asText(body.orderNo).trim();
   if (!orderNo) return NextResponse.json({ error: "缺少订单号" }, { status: 400 });
 
-  const channel = ["demo", "wechat", "alipay"].includes(body.channel ?? "")
-    ? (body.channel as string)
+  const channel = ["demo", "wechat", "alipay"].includes(asText(body.channel))
+    ? asText(body.channel)
     : "demo";
   // 生产环境：任何渠道都不接受前端自助到账。真微信支付上线时，
   // 由支付回调路由（服务端验签 + 金额以订单为准 + 幂等）调用 payOrder，

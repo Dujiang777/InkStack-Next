@@ -6,6 +6,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser, isStaff } from "@/lib/auth";
 import { adminSetArticle, adminReviewArticle, adminSetArticlePrice, logAdminAction, type AdminAction } from "@/lib/data";
 import { notify } from "@/lib/notify";
+import { asText } from "@/lib/text";
 
 const ACTIONS: AdminAction[] = ["publish", "unpublish", "pin", "unpin", "feature", "unfeature"];
 const REVIEW_ACTIONS = ["approve", "reject"] as const;
@@ -42,7 +43,7 @@ export async function POST(req: Request) {
           result.authorId,
           "review",
           "文章未通过审核",
-          `原因：${(body.note ?? "").trim() || "内容不符合社区规范"}。可在书房修改后重新提交。`,
+          `原因：${asText(body.note).trim() || "内容不符合社区规范"}。可在书房修改后重新提交。`,
           `/study`
         );
       }

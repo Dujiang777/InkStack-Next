@@ -9,6 +9,7 @@ import { checkCode } from "@/lib/verify-code";
 import { logAudit, clientIp, clientUa } from "@/lib/audit";
 import { sendLoginAlert } from "@/lib/mailer";
 import * as rl from "@/lib/rate-limit";
+import { asText } from "@/lib/text";
 
 export async function POST(req: Request) {
   if (!dbEnabled()) {
@@ -22,9 +23,11 @@ export async function POST(req: Request) {
     password?: string;
     totp?: string;
   };
-  const email = (body.email ?? "").trim().toLowerCase();
-  const password = body.password ?? "";
-  const totp = (body.totp ?? "").trim();
+  // v18.1：非字符串字段（如 {"password":123}）原来会抛 TypeError → 500，且能绕过长度校验；
+  // 统一走 asText，非字符串视为空值，落到下面既有的 401/400 分支。
+  const email = asText(body.email).trim().toLowerCase();
+  const password = asText(body.password);
+  const totp = asText(body.totp).trim();
   const ip = clientIp(req);
   const ua = clientUa(req);
   const key = `login:${email}:${ip}`;

@@ -5,6 +5,7 @@ import { getCurrentUser, cleanNickname } from "@/lib/auth";
 import { getPool } from "@/lib/db";
 import { cleanAvatarTone, cleanAvatarShape } from "@/lib/avatar";
 import { ensureAvatarColumns } from "@/lib/data";
+import { asText } from "@/lib/text";
 
 export async function PATCH(req: Request) {
   const user = await getCurrentUser();
@@ -17,11 +18,14 @@ export async function PATCH(req: Request) {
     avatarShape?: string;
     bio?: string;
   };
-  const nickname = cleanNickname(body.nickname);
-  const avatarText = (body.avatarText ?? "").trim().slice(0, 2);
+  // v18.1：昵称先过 asText —— cleanNickname 内部是 `String(raw ?? "")`，
+  // 直接喂对象会被强制成 "[object Object]"（非空 → 绕过非空校验后落库），
+  // 数字会被落成 "123"。传非字符串一律按「未填」处理，与 register 口径一致。
+  const nickname = cleanNickname(asText(body.nickname));
+  const avatarText = asText(body.avatarText).trim().slice(0, 2);
   const avatarTone = cleanAvatarTone(body.avatarTone);
   const avatarShape = cleanAvatarShape(body.avatarShape);
-  const bio = (body.bio ?? "").trim().slice(0, 120);
+  const bio = asText(body.bio).trim().slice(0, 120);
 
   if (!nickname) return NextResponse.json({ error: "昵称不能为空" }, { status: 400 });
 

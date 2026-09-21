@@ -16,6 +16,7 @@ import { getPool, dbEnabled } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { spendPoints, peekBalance } from "@/lib/points";
 import { retrieveSnippets, type Snippet } from "@/lib/rag";
+import { asText, asTextOr } from "@/lib/text";
 
 const QA_COST = 5; // 分身问答单价（经济收紧后由 2 上调至 5）
 
@@ -69,9 +70,10 @@ export async function POST(req: Request) {
     about?: string;
     history?: HistoryTurn[];
   };
-  const question = (body.question ?? "").trim().slice(0, 500);
-  const author = (body.author ?? "博主").trim().slice(0, 40);
-  const about = (body.about ?? "").trim().slice(0, 120);
+  const question = asText(body.question).trim().slice(0, 500);
+  // author 的默认值只在「非字符串」时生效（保留修复前 `?? "博主"` 的语义：传空串仍是空串）
+  const author = asTextOr(body.author, "博主").trim().slice(0, 40);
+  const about = asText(body.about).trim().slice(0, 120);
   // 多轮记忆：只保留最近 6 条有效发言，防 prompt 膨胀与注入长文
   const history = (Array.isArray(body.history) ? body.history : [])
     .filter((t) => t && (t.role === "user" || t.role === "agent") && typeof t.text === "string" && t.text.trim())

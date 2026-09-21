@@ -3,6 +3,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getPool } from "@/lib/db";
+import { asText } from "@/lib/text";
 
 export async function GET(req: Request) {
   const user = await getCurrentUser();
@@ -33,8 +34,8 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: "未登录，草稿将暂存本地" }, { status: 401 });
   }
   const body = (await req.json().catch(() => ({}))) as { title?: string; content?: string };
-  const title = (body.title ?? "").trim().slice(0, 200);
-  const content = body.content ?? "";
+  const title = asText(body.title).trim().slice(0, 200);
+  const content = asText(body.content);
   if (!title) return NextResponse.json({ error: "title 不能为空" }, { status: 400 });
   if (content.length > 100_000) {
     return NextResponse.json({ error: "草稿过长（上限 10 万字）" }, { status: 400 });

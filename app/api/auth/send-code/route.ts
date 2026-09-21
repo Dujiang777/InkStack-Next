@@ -6,6 +6,7 @@ import { smtpConfigured, sendVerifyCode } from "@/lib/mailer";
 import { issueCode } from "@/lib/verify-code";
 import { clientIp } from "@/lib/audit";
 import * as rl from "@/lib/rate-limit";
+import { asText } from "@/lib/text";
 
 export async function POST(req: Request) {
   if (!dbEnabled()) {
@@ -21,7 +22,7 @@ export async function POST(req: Request) {
     );
   }
   const body = (await req.json().catch(() => ({}))) as { email?: string; purpose?: string };
-  const email = (body.email ?? "").trim().toLowerCase();
+  const email = asText(body.email).trim().toLowerCase();
   const purpose =
     body.purpose === "reset" ? "reset" : body.purpose === "twofa" ? "twofa" : "register";
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {

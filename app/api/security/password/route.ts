@@ -6,6 +6,7 @@ import { getCurrentUser, verifyPassword, hashPassword, revokeOtherSessions } fro
 import { logAudit, clientIp, clientUa } from "@/lib/audit";
 import { pwnedCount } from "@/lib/pwned";
 import * as rl from "@/lib/rate-limit";
+import { asText } from "@/lib/text";
 
 export async function POST(req: Request) {
   if (!dbEnabled()) return NextResponse.json({ error: "演示模式下不可用" }, { status: 501 });
@@ -20,8 +21,8 @@ export async function POST(req: Request) {
   }
 
   const body = (await req.json().catch(() => ({}))) as { oldPassword?: string; newPassword?: string };
-  const oldPw = body.oldPassword ?? "";
-  const newPw = body.newPassword ?? "";
+  const oldPw = asText(body.oldPassword);
+  const newPw = asText(body.newPassword);
   if (newPw.length < 8 || !/[a-zA-Z]/.test(newPw) || !/[0-9]/.test(newPw)) {
     return NextResponse.json({ error: "新密码至少 8 位，且需同时包含字母和数字" }, { status: 400 });
   }

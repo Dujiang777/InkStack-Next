@@ -3,6 +3,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { createSeries, listMySeries } from "@/lib/data";
+import { asText } from "@/lib/text";
 
 export async function GET() {
   const user = await getCurrentUser();
@@ -20,12 +21,12 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "请求格式有误" }, { status: 400 });
   }
-  const title = (body.title ?? "").trim();
+  const title = asText(body.title).trim();
   if (title.length < 2 || title.length > 60) {
     return NextResponse.json({ error: "专栏题名需 2-60 字" }, { status: 400 });
   }
   try {
-    const id = await createSeries(user.id, title, (body.description ?? "").trim());
+    const id = await createSeries(user.id, title, asText(body.description).trim());
     if (!id) return NextResponse.json({ error: "创建失败，请稍后再试" }, { status: 500 });
     return NextResponse.json({ ok: true, id });
   } catch {

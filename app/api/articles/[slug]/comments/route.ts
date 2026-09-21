@@ -7,6 +7,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { getPool } from "@/lib/db";
 import { grantCappedReward } from "@/lib/points";
 import { notify } from "@/lib/notify";
+import { asText } from "@/lib/text";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -26,7 +27,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
   const parentId = Number(body.parentId) > 0 ? Number(body.parentId) : null;
   const result = await addComment(
     slug,
-    { nickname: body.nickname ?? "", content: body.content ?? "", parentId },
+    { nickname: asText(body.nickname), content: asText(body.content), parentId },
     user ? { id: user.id, nickname: user.nickname } : undefined
   );
   if (!result.ok) {
@@ -53,8 +54,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     }
     commentRow = {
       id: result.id,
-      nickname: user?.nickname ?? (body.nickname?.trim().slice(0, 20) || "访客"),
-      content: (body.content ?? "").trim(),
+      nickname: user?.nickname ?? (asText(body.nickname).trim().slice(0, 20) || "访客"),
+      content: asText(body.content).trim(),
       createdAt: result.createdAt ?? new Date().toLocaleString("zh-CN", { hour12: false }).replace(/\//g, "-"),
       parentId,
       parentAuthor,

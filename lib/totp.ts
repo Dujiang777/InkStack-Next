@@ -1,6 +1,7 @@
 // TOTP 双因素认证（RFC 6238，兼容 Google Authenticator / 微信小程序验证器）
 // 零外部依赖：base32 编解码 + HMAC-SHA1 滚动码，6 位 / 30 秒步长 / 允许 ±1 窗口时钟漂移
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { asText } from "./text";
 
 const B32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
@@ -58,7 +59,8 @@ function totpAt(secret: Buffer, counter: number): string {
 
 /** 校验 6 位验证码：允许 ±1 窗口（±30s 时钟漂移）；恒时比较防时序侧信道 */
 export function verifyTotp(secretB32: string, code: string, window = 1): boolean {
-  const clean = (code ?? "").replace(/\D/g, "");
+  // v18.1：入参归一 —— 允许非字符串入参直接短路为 false，而不是抛 TypeError
+  const clean = asText(code).replace(/\D/g, "");
   if (clean.length !== 6) return false;
   const secret = base32Decode(secretB32);
   const counter = Math.floor(Date.now() / 1000 / 30);

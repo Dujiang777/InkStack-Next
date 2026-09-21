@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { dbEnabled } from "@/lib/db";
 import { hashPassword } from "@/lib/auth";
 import { checkCode } from "@/lib/verify-code";
+import { asText } from "@/lib/text";
 
 export async function POST(req: Request) {
   if (!dbEnabled()) {
@@ -14,9 +15,9 @@ export async function POST(req: Request) {
     code?: string;
     password?: string;
   };
-  const email = (body.email ?? "").trim().toLowerCase();
-  const code = (body.code ?? "").trim();
-  const password = body.password ?? "";
+  const email = asText(body.email).trim().toLowerCase();
+  const code = asText(body.code).trim();
+  const password = asText(body.password);
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return NextResponse.json({ error: "邮箱格式不正确" }, { status: 400 });
   }

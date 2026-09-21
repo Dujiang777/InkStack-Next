@@ -6,6 +6,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { dbEnabled } from "@/lib/db";
 import { submitReport } from "@/lib/data";
+import { asText } from "@/lib/text";
 
 export async function POST(req: Request, { params }: { params: Promise<{ slug: string }> }) {
   const user = await getCurrentUser();
@@ -14,7 +15,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
   if (!dbEnabled()) return NextResponse.json({ error: "数据库暂不可用" }, { status: 503 });
 
   const body = (await req.json().catch(() => ({}))) as { reason?: string };
-  const reason = (body.reason ?? "").trim().slice(0, 255);
+  const reason = asText(body.reason).trim().slice(0, 255);
   if (reason.length < 2) return NextResponse.json({ error: "请填写举报原因（至少 2 字）" }, { status: 400 });
 
   const r = await submitReport(user.id, { type: "article", slug }, reason);

@@ -8,16 +8,17 @@ import { NextResponse } from "next/server";
 import { getCurrentUser, isStaff } from "@/lib/auth";
 import { getPool } from "@/lib/db";
 import { extractDomain, submitLinkForReview } from "@/lib/link-policy";
+import { asText } from "@/lib/text";
 
 export async function POST(req: Request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "登录后才能提交外链审核" }, { status: 401 });
   const body = (await req.json().catch(() => ({}))) as { url?: string; note?: string };
-  const url = (body.url ?? "").trim();
+  const url = asText(body.url).trim();
   if (!extractDomain(url)) {
     return NextResponse.json({ error: "url 无效" }, { status: 400 });
   }
-  await submitLinkForReview(url, body.note ?? "");
+  await submitLinkForReview(url, asText(body.note));
   return NextResponse.json({ ok: true, message: "已提交审核，通过前该链接将以「待审核」样式展示" });
 }
 

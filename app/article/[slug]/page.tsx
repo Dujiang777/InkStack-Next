@@ -176,6 +176,8 @@ export default async function ArticlePage({ params }: { params: Promise<{ slug: 
               originalPrice={hasDiscount ? unlockPrice : undefined}
               discountUntil={article.discountUntil}
               unlockCount={article.unlockCount ?? 0}
+              charCount={charCount}
+              qaCount={article.agentQaCount ?? 0}
               loggedIn={Boolean(viewer)}
               balance={viewer?.points ?? null}
             />

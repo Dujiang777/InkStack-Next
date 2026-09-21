@@ -10395,3 +10395,421 @@ body.m .ss-scenes { flex: 1 1 160px; }
 body.m .ss-chars { grid-template-columns: repeat(6, 1fr); }
 body.m .ss-shapes { grid-template-columns: repeat(3, 1fr); }
 body.m .ss-head { flex-wrap: wrap; }
+
+/* ============================================================
+   v17.7 层：文章付费墙 PaywallCard「解锁契约」深度打磨
+   目标：付费墙是全站最后一块还写在外色系上的展示层——
+        早鸟横幅是 v14 遗留的「红渐变 + 扫光 + 火苗 emoji + 10px 圆角 + 柔阴影」，
+        卡片本体是「居中大标题 + 一段说明 + 一颗按钮」的默认组件长相，
+        且 .pw-desc / .pw-price i 引用了**从未定义过的幽灵 token --ink-soft**，
+        夜读下退回硬编码灰 #6b6353，实测只有 2.73:1（需 4.5:1）。
+   做法：换成与 /hot、/tag、/author、/series 同源的纸面文书——
+        封缄顶带（朱砂方印 + 双线收口）、契约定式（体量 / 追问 / 分成三条）、
+        骑缝虚线界开的价签列、全宽朱砂硬阴影 CTA，并补 focus 态与动效降级。
+   纪律：零新增零散色值，全部复用既有 token
+        （ink 墨色 / ink-muted 次级墨灰 / surface 纸面 / paper 纸底 /
+         accent 朱砂小字 / accent-big 朱砂大字 / rule 界栏 /
+         ease 缓动 / dur-fast 与 dur-base 与 dur-slow 时长）。
+   要点：CTA 填充改用 --accent（不是 --accent-big）——它是「小字安全朱砂」，
+        压在 --paper 文字上亮色 6.07:1、夜读 4.78:1，两种模式自动达标，
+        因此本层**不需要**任何 body[data-theme="night"] 覆写。
+   说明：结构类名统一换成 pwq- 前缀，避免继承 v12.6 / v12.8 / v14 三代历史规则
+        里没被重写的属性（border-radius / opacity / margin / 定位等）。
+        旧的 .pw-kicker / .pw-title / .pw-row / .pw-price / .pw-btn / .pw-heat /
+        .pw-flame / .pw-banner* 一族随之成为死样式，保留在历史层备查。
+        注意：.pw-err 仍被 MeClient 与 BundleUnlockBox 共用，本层**不得**改动它。
+   ============================================================ */
+
+/* ============ 1. 契约纸面：容器复位 ============ */
+.paywall-card {
+  margin: 32px 0 14px;
+  padding: 0;                       /* 顶带要贴到框边 */
+  text-align: left;                 /* 复位历史层的居中：文书靠左更好读 */
+  background: var(--surface);
+  border: 2px solid var(--rule-strong);
+  box-shadow: 5px 5px 0 var(--accent-big);
+  overflow: visible;                /* 复位历史层的 hidden，避免裁掉印章外扩 */
+  position: relative;
+}
+/* 停用历史层的虚线内框（顶带 + 骑缝线已承担分栏职责，再套一层会糊） */
+.paywall-card::before {
+  content: none;
+}
+
+/* ============ 2. 封缄顶带：朱砂方印 + 双线收口 ============ */
+.pwq-band {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 15px;
+  background: var(--paper);
+  border-bottom: 3px double var(--rule-strong);
+}
+/* 方印用描边而非实底：实底朱砂在夜读下会把字压成深底浅字，对比度反而不够 */
+.pwq-seal {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 23px;
+  height: 23px;
+  font-family: var(--serif);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--accent);             /* 文字用安全朱砂：亮色 6.07:1 / 夜读 4.78:1 */
+  border: 1.5px solid var(--accent-big);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-big) 45%, transparent);
+  transform: rotate(-5deg);
+  transition: transform var(--dur-base) var(--ease);
+}
+.paywall-card:hover .pwq-seal {
+  transform: rotate(0deg);
+}
+.pwq-band-txt {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pwq-band-flag {
+  flex: 0 0 auto;
+  font-style: normal;
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  padding: 1px 6px;
+  color: var(--accent);
+  border: 1px solid var(--accent-big);
+  background: color-mix(in srgb, var(--accent-big) 10%, transparent);
+}
+.pwq-band-lat {
+  flex: 0 0 auto;
+  font-family: "Fraunces", var(--serif);
+  font-size: 0.62rem;
+  letter-spacing: 0.24em;
+  color: var(--ink-muted);
+}
+
+/* ============ 3. 契约本体：说明栏 + 骑缝虚线 + 价签列 ============ */
+.pwq-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 262px;   /* minmax(0,…) 防轨道被 max-content 撑开 */
+  gap: 26px;
+  align-items: start;
+  padding: 22px 22px 20px;
+}
+
+.pwq-main {
+  min-width: 0;
+}
+.pwq-title {
+  display: block;
+  font-family: var(--serif);
+  font-size: clamp(1.5rem, 2.9vw, 1.88rem);
+  font-weight: 900;
+  line-height: 1.2;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+}
+.pwq-heat {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 9px;
+  font-size: 0.8rem;
+  color: var(--ink-muted);
+}
+.pwq-heat-n {
+  font-family: var(--serif);
+  font-size: 1.12rem;
+  font-weight: 900;
+  line-height: 1;
+  /* 卡片底是 --surface 而不是 --paper：夜读下 --accent(#d8623a) 压在 --surface 上
+     只有 4.42:1，改用 --accent-big 得亮色 5.02:1 / 夜读 5.07:1 */
+  color: var(--accent-big);
+  font-variant-numeric: tabular-nums;
+}
+/* 朱砂墨线在标题下生长：替代历史层那个 10px 闪烁的 ▲（小字跌破 4.5:1） */
+.pwq-heat::after {
+  content: "";
+  flex: 0 0 auto;
+  align-self: center;
+  width: 34px;
+  height: 2px;
+  background: var(--accent);
+  transform-origin: left center;
+  animation: pwq-rule-grow var(--dur-slow) var(--ease) both;
+}
+@keyframes pwq-rule-grow {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+/* 契约定式：体量 / 追问 / 分成 —— 把原来那 3 行泛泛的说明段换成可扫读的条款 */
+.pwq-terms {
+  list-style: none;
+  margin-top: 16px;
+  padding-top: 15px;
+  border-top: 1px solid var(--rule);
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.pwq-terms li {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  font-size: 0.82rem;
+  line-height: 1.75;
+  color: var(--ink-muted);
+}
+.pwq-tk {
+  flex: 0 0 auto;
+  width: 3.4em;
+  text-align: justify;
+  text-align-last: justify;         /* 两字标签做齐头，像公文小标 */
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--accent-big);         /* 同上：--surface 底，不用 --accent */
+}
+
+/* ============ 4. 价签列：骑缝虚线界开 ============ */
+.pwq-deal {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+  padding-left: 26px;
+  border-left: 1px dashed var(--rule-strong);
+}
+.pwq-tag-k {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  color: var(--ink-muted);
+  margin-bottom: 7px;
+}
+.pwq-price {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-family: var(--serif);
+  font-variant-numeric: tabular-nums;
+}
+.pwq-orig {
+  font-size: 0.92rem;
+  color: var(--ink-muted);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+.pwq-num {
+  font-size: 2.5rem;
+  font-weight: 900;
+  line-height: 0.92;
+  letter-spacing: -0.01em;
+  color: var(--accent-big);         /* 大字阈值 3:1，实测亮色 4.61:1 / 夜读 5.48:1 */
+}
+.pwq-price i {
+  font-style: normal;
+  font-size: 0.76rem;
+  color: var(--ink-muted);
+}
+.pwq-save {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 2px 7px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--accent-big);         /* 同上：--surface 底，不用 --accent */
+  background: color-mix(in srgb, var(--accent-big) 12%, transparent);
+}
+.pwq-countdown {
+  margin-top: 7px;
+  font-size: 0.72rem;
+  color: var(--ink-muted);
+}
+.pwq-countdown b {
+  font-weight: 700;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============ 5. CTA：全宽朱砂 + 墨影硬阴影 ============ */
+.pwq-cta {
+  display: block;
+  width: 100%;
+  padding: 12px 14px;
+  border: 2px solid var(--rule-strong);
+  border-radius: 0;                 /* 显式复位历史层的 3px 圆角 */
+  background: var(--accent);        /* 小字安全朱砂：压 --paper 文字亮 6.07 / 夜读 4.78 */
+  color: var(--paper);
+  font-family: var(--serif);
+  font-size: 0.94rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  line-height: 1.5;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+  box-shadow: 3px 3px 0 var(--rule-strong);
+  transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease),
+    background-color var(--dur-fast) var(--ease);
+}
+.pwq-cta:hover {
+  background: var(--accent-big);
+  transform: translate(-1px, -1px);
+  box-shadow: 5px 5px 0 var(--rule-strong);
+}
+.pwq-cta:active {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0 var(--rule-strong);
+}
+.pwq-cta:focus-visible {
+  outline: 2px solid var(--accent-big);
+  outline-offset: 2px;
+}
+.pwq-cta:disabled {
+  cursor: default;
+  background: var(--ink-muted);
+  color: var(--surface);
+  box-shadow: none;
+  transform: none;
+}
+
+/* ============ 6. 余额脚注 ============ */
+.pwq-balance {
+  font-size: 0.75rem;
+  line-height: 1.7;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+.pwq-balance b {
+  font-weight: 700;
+  color: var(--ink);
+}
+.pwq-sep {
+  margin: 0 5px;
+  opacity: 0.6;
+}
+
+/* 错误行沿用共用的 .pw-err（MeClient / BundleUnlockBox 也用），只做本页内距 */
+.paywall-card .pw-err {
+  margin: 0;
+  padding: 0 22px 18px;
+}
+
+/* ============ 7. 窄屏：拆成单列，骑缝线转成横向虚线 ============ */
+@media (max-width: 860px) {
+  .pwq-body {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+    padding: 20px 18px 18px;
+  }
+  .pwq-deal {
+    padding-left: 0;
+    border-left: 0;
+    padding-top: 17px;
+    border-top: 1px dashed var(--rule-strong);
+  }
+  .pwq-tk {
+    width: 3.2em;
+  }
+  /* 价签条：单列版式下把解锁价/原价/立省/倒计时并成一行，
+     既不留出右侧大片死白，CTA 又能保持全宽（不做半宽按钮） */
+  .pwq-tag {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 5px 16px;
+  }
+  .pwq-tag-k {
+    margin-bottom: 0;
+  }
+  .pwq-save {
+    margin-top: 0;
+  }
+  .pwq-countdown {
+    margin-top: 0;
+  }
+  .pwq-num {
+    font-size: 2.2rem;
+  }
+}
+/* body.m 特异性 (0,2,1) 高于普通类，必须显式写一遍，否则本层断点会被历史层盖住 */
+body.m .pwq-body {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+  padding: 20px 16px 18px;
+}
+body.m .pwq-deal {
+  padding-left: 0;
+  border-left: 0;
+  padding-top: 17px;
+  border-top: 1px dashed var(--rule-strong);
+}
+body.m .pwq-tag {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 5px 14px;
+}
+body.m .pwq-tag-k,
+body.m .pwq-save,
+body.m .pwq-countdown {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+body.m .pwq-num {
+  font-size: 2.15rem;
+}
+body.m .pwq-band {
+  padding: 8px 13px;
+}
+body.m .pwq-band-txt {
+  letter-spacing: 0.12em;
+}
+/* 复位 v12.6 那个 640px 断点写的 padding，防止顶带被推离框边 */
+body.m .paywall-card {
+  padding: 0;
+}
+body.m .paywall-card .pw-err {
+  padding: 0 16px 16px;
+}
+@media (max-width: 640px) {
+  .paywall-card {
+    padding: 0;
+  }
+  .paywall-card .pw-err {
+    padding: 0 16px 16px;
+  }
+}
+
+/* ============ 8. 动效降级 ============ */
+@media (prefers-reduced-motion: reduce) {
+  .pwq-heat::after {
+    animation: none;
+  }
+  .pwq-seal,
+  .paywall-card:hover .pwq-seal {
+    transition: none;
+    transform: rotate(-5deg);
+  }
+  .pwq-cta,
+  .pwq-cta:hover,
+  .pwq-cta:active {
+    transition: none;
+    transform: none;
+  }
+  .pwq-cta:hover {
+    box-shadow: 3px 3px 0 var(--rule-strong);
+  }
+}

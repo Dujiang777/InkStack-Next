@@ -1,6 +1,8 @@
 "use client";
 
 // 付费墙解锁卡：试读结束处展示定价与解锁按钮；解锁成功刷新页面揭示全文
+// v17.7：展示层重构为「解锁契约」——
+//   墨纸双色 + 封缄顶带 + 骑缝虚线 + 价签列，全部复用既有 token，结构类名统一 pwq- 前缀
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -14,8 +16,12 @@ type Props = {
   discountUntil?: string | null;
   loggedIn: boolean;
   balance: number | null;
-  /** 累计解锁人次（>0 时显示热度条） */
+  /** 累计解锁人次（>0 时显示热度） */
   unlockCount?: number;
+  /** 正文字数（展示层信息，用于契约条款；缺省时不显示体量） */
+  charCount?: number;
+  /** 作者分身累计回答次数（展示层信息） */
+  qaCount?: number;
 };
 
 /** 早鸟倒计时：按截止时间显示「还剩 X 天 / X 小时」，每分钟自刷新 */
@@ -35,7 +41,17 @@ function useCountdown(until?: string | null): string | null {
   return `${Math.max(1, Math.floor(ms / 6e4))} 分钟`;
 }
 
-export default function PaywallCard({ slug, price, originalPrice, discountUntil, unlockCount = 0, loggedIn, balance }: Props) {
+export default function PaywallCard({
+  slug,
+  price,
+  originalPrice,
+  discountUntil,
+  unlockCount = 0,
+  loggedIn,
+  balance,
+  charCount,
+  qaCount = 0,
+}: Props) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -77,70 +93,98 @@ export default function PaywallCard({ slug, price, originalPrice, discountUntil,
     }
   }
 
+  // 三个分支互斥，避免渲染出「点了一定失败」的死按钮
+  const cta = !loggedIn ? (
+    <Link className="pwq-cta" href="/login">
+      登录后解锁
+    </Link>
+  ) : short ? (
+    <Link className="pwq-cta" href="/points">
+      墨水不足 · 去墨仓补货 →
+    </Link>
+  ) : (
+    <button className="pwq-cta" onClick={unlock} disabled={busy || done} aria-busy={busy}>
+      {done ? "已解锁 · 揭示全文…" : busy ? "解锁中…" : "解锁阅读全文"}
+    </button>
+  );
+
   return (
-    <div className="paywall-card">
-      {hasDiscount && countdown && (
-        <div className="pw-banner" role="status">
-          <span className="pw-banner-flame" aria-hidden="true">
-            🔥
-          </span>
-          <div className="pw-banner-main">
-            <b className="pw-banner-title">限时早鸟 · 立省 {originalPrice! - price} 点墨</b>
-            <span className="pw-banner-sub">
-              距恢复原价 <i className="pw-banner-timer">{countdown}</i>
-              {unlockCount > 0 && (
+    <section className="paywall-card" aria-label="付费内容解锁">
+      <div className="pwq-band">
+        <span className="pwq-seal" aria-hidden="true">
+          缄
+        </span>
+        <span className="pwq-band-txt">
+          付费专稿 · 试读止于此
+          {hasDiscount && countdown && <i className="pwq-band-flag">早鸟价</i>}
+        </span>
+        <span className="pwq-band-lat" aria-hidden="true">
+          PAYWALL
+        </span>
+      </div>
+
+      <div className="pwq-body">
+        <div className="pwq-main">
+          <b className="pwq-title">试读到此为止</b>
+          {unlockCount > 0 && (
+            <p className="pwq-heat">
+              <b className="pwq-heat-n">{unlockCount.toLocaleString()}</b>
+              <span>人已解锁 · 跟上同频读者</span>
+            </p>
+          )}
+          <ul className="pwq-terms">
+            <li>
+              <span className="pwq-tk">全文</span>
+              {charCount ? `本篇 ${charCount.toLocaleString()} 字正文与全部图示` : "本篇正文与全部图示"}
+            </li>
+            <li>
+              <span className="pwq-tk">追问</span>
+              {qaCount > 0
+                ? `可向作者 AI 分身继续追问（已答 ${qaCount.toLocaleString()} 次）`
+                : "可向作者 AI 分身继续追问"}
+            </li>
+            <li>
+              <span className="pwq-tk">分成</span>
+              作者得解费用的七成，直接支持持续写作
+            </li>
+          </ul>
+        </div>
+
+        <div className="pwq-deal">
+          <div className="pwq-tag">
+            <p className="pwq-tag-k">解锁价</p>
+            <p className="pwq-price">
+              {hasDiscount && <s className="pwq-orig">{originalPrice}</s>}
+              <span className="pwq-num">{price}</span>
+              <i>点墨</i>
+            </p>
+            {hasDiscount && <p className="pwq-save">省 {originalPrice! - price} 点墨</p>}
+            {countdown && (
+              <p className="pwq-countdown">
+                距恢复原价 <b>{countdown}</b>
+              </p>
+            )}
+          </div>
+
+          {cta}
+
+          {loggedIn && balance !== null && (
+            <p className="pwq-balance">
+              余额 <b>{balance.toLocaleString()}</b> 点墨
+              {!short && (
                 <>
-                  {" · 已售 "}
-                  <i className="pw-banner-timer">{unlockCount.toLocaleString()}</i> 份
+                  <span className="pwq-sep" aria-hidden="true">
+                    ·
+                  </span>
+                  作者得 {Math.floor(price * 0.7)} 点
                 </>
               )}
-            </span>
-          </div>
-          <s className="pw-banner-orig">{originalPrice}</s>
-        </div>
-      )}
-      <p className="pw-kicker">PAYWALL · 付费专稿</p>
-      <b className="pw-title">试读到此为止</b>
-      {unlockCount > 0 && (
-        <p className="pw-heat">
-          <i className="pw-flame" aria-hidden="true">▲</i>
-          已有 {unlockCount.toLocaleString()} 人解锁 · 跟上同频读者
-        </p>
-      )}
-      <p className="pw-desc">
-        本文为作者付费专栏稿，解锁后可读全文；作者获得解费用的七成。支持作者持续写作。
-      </p>
-      {countdown && <span className="pw-earlybird">早鸟倒计时 {countdown}</span>}
-      <div className="pw-row">
-        <span className="pw-price">
-          {hasDiscount && <s className="pw-orig">{originalPrice}</s>}
-          {price} <i>点墨</i>
-        </span>
-        {loggedIn ? (
-          <button className="pw-btn" onClick={unlock} disabled={busy || done}>
-            {done ? "已解锁 · 揭示全文…" : busy ? "解锁中…" : short ? "墨水不足 · 去补货" : "解锁阅读全文"}
-          </button>
-        ) : (
-          <Link className="pw-btn" href="/login">
-            登录后解锁
-          </Link>
-        )}
-      </div>
-      {loggedIn && balance !== null && (
-        <p className="pw-balance">
-          当前余额 {balance.toLocaleString()} 点墨
-          {short && (
-            <>
-              {" · "}
-              <Link href="/points" className="pw-topup">
-                去墨仓补货 →
-              </Link>
-            </>
+            </p>
           )}
-          {!short && <span className="pw-share"> · 作者得 {Math.floor(price * 0.7)} 点</span>}
-        </p>
-      )}
+        </div>
+      </div>
+
       {err && <p className="pw-err">✕ {err}</p>}
-    </div>
+    </section>
   );
 }

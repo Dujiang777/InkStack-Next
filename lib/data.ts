@@ -3,6 +3,23 @@
 import { getPool } from "./db";
 import { demoArticles, demoComments, type DemoArticle, type DemoComment } from "./demo-data";
 
+/* ---------- 数据库可重试错误（v18.0） ----------
+ * InnoDB 的死锁与锁等待超时属于**可重试**错误：官方建议由应用侧重放整个语句/事务。
+ * 用于「多条无锁语句构成一次逻辑写」的场景（如 toggleBookmark 的 INSERT IGNORE→DELETE）。
+ * 判定只看错误码，不做字符串匹配。
+ */
+const RETRYABLE_LOCK_ERRORS = new Set(["ER_LOCK_DEADLOCK", "ER_LOCK_WAIT_TIMEOUT"]);
+
+function isRetryableLockError(e: unknown): boolean {
+  const code = (e as { code?: unknown } | null | undefined)?.code;
+  return typeof code === "string" && RETRYABLE_LOCK_ERRORS.has(code);
+}
+
+/** 退避等待（带抖动由调用方给值，避免并发重试同步对撞） */
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export type ArticleRow = {
   slug: string;
   title: string;
@@ -1074,6 +1091,71 @@ function DATE_AFTER_DAYS(days: number): string {
   return d.toISOString().slice(0, 19).replace("T", " ");
 }
 
+/** 举报目标：按 slug 定位已发布文章，或按 id 定位评论 */
+export type ReportTarget = { type: "article"; slug: string } | { type: "comment"; commentId: number };
+
+/**
+ * 读者举报入库（单事务 + 目标行 FOR UPDATE 串行化）。
+ *
+ * v18.0：原实现是「SELECT 查重复 → INSERT」两条各自自动提交的语句，两句之间既无行锁
+ * 也无唯一键。实测 20 并发提交同一目标：评论举报落库 **10 行**、文章举报落库 **17 行**
+ * （都应只 1 行）——注释里「同一用户对同一目标的未处理举报只保留一条」的承诺是假的，
+ * 举报人一次并发即可把运营台处理队列灌满（middleware 的 120 次/分/IP 限流拦不住
+ * 同一 key 的并发突发）。
+ *
+ * 现在：整段收进单事务，先对目标行（文章/评论主键）FOR UPDATE 取锁——
+ * 同一目标的并发举报在此排队，后到者的重复检查必然读到先到者已提交的 open 行，
+ * 于是返回 duplicate 而不落库。
+ *
+ * 注意：去重口径只在 `status='open'` 上——举报被处理后（resolved/dismissed），
+ * 同一用户应当可以再次举报，所以**不能**用普通唯一索引（MySQL 无部分索引）。
+ */
+export async function submitReport(
+  reporterId: number,
+  target: ReportTarget,
+  reason: string
+): Promise<{ ok: true } | { ok: false; code: "not_found" | "duplicate" | "db" }> {
+  const pool = await getPool();
+  if (!pool) return { ok: false, code: "db" };
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    // 锁锚点：目标行本身。同目标的并发举报在此排队。
+    const anchorSql =
+      target.type === "article"
+        ? `SELECT id FROM articles WHERE slug = ? AND status = 'published' LIMIT 1 FOR UPDATE`
+        : `SELECT id FROM comments WHERE id = ? LIMIT 1 FOR UPDATE`;
+    const anchorArg = target.type === "article" ? target.slug : target.commentId;
+    const [anchorRows] = await conn.query(anchorSql, [anchorArg]);
+    const anchor = (anchorRows as { id: number }[])[0];
+    if (!anchor) {
+      await conn.rollback();
+      return { ok: false, code: "not_found" };
+    }
+    const [dup] = await conn.query(
+      `SELECT 1 FROM reports WHERE reporter_id = ? AND target_type = ? AND target_id = ? AND status = 'open' LIMIT 1`,
+      [reporterId, target.type, anchor.id]
+    );
+    if ((dup as unknown[]).length > 0) {
+      await conn.rollback();
+      return { ok: false, code: "duplicate" };
+    }
+    await conn.query(`INSERT INTO reports (reporter_id, target_type, target_id, reason) VALUES (?, ?, ?, ?)`, [
+      reporterId,
+      target.type,
+      anchor.id,
+      reason,
+    ]);
+    await conn.commit();
+    return { ok: true };
+  } catch {
+    await conn.rollback().catch(() => {});
+    return { ok: false, code: "db" };
+  } finally {
+    conn.release();
+  }
+}
+
 /** 举报处理：删除内容 / 保留内容仅忽略 / 直接关闭 */
 export async function adminHandleReport(
   reportId: number,
@@ -1535,15 +1617,35 @@ export async function toggleBookmark(userId: number, slug: string): Promise<{ bo
   //   实测 20 并发首次收藏 → 1 成功 / 19 抛 ER_DUP_ENTRY。
   //   唯一键本身已保证不会重复，这里只需让「重复插入」不再变成异常；
   //   与 toggleFollow 的 INSERT IGNORE 写法保持一致。
-  const [ins] = await pool.query(`INSERT IGNORE INTO bookmarks (user_id, article_id) VALUES (?, ?)`, [
-    userId,
-    articleId,
-  ]);
-  if (Number((ins as { affectedRows?: number }).affectedRows ?? 0) === 1) {
-    return { bookmarked: true };
+  //
+  // v18.0：上面的写法解决了 ER_DUP_ENTRY，但留下另一条失败路径——**ER_LOCK_DEADLOCK**。
+  //   `INSERT IGNORE` 撞到已存在的行时，InnoDB 要先对那一行取**共享锁**判定唯一键；
+  //   紧接着的 `DELETE` 又要把它升级成**排他锁**。N 个并发请求各持一把 S 锁、
+  //   又都想要 X 锁，于是成环死锁。实测同一 (user, article) 20 并发：
+  //   **10/20 抛 ER_LOCK_DEADLOCK**，被路由 catch 成 500「收藏失败，请稍后再试」。
+  //   （对照：toggleFollow / toggleCommentLike 20 并发零错误——它们只在「已存在」时
+  //     DELETE、只在「不存在」时 INSERT，不构成 S→X 升级。）
+  //   死锁是 InnoDB 的正常现象，官方给的解法就是**重放**；此处按语句重试 3 次并带抖动退避，
+  //   仅在「确实撞上可重试锁错误」时才多花一次往返。
+  //   重放语义安全：死锁会整条回滚该语句，状态不变；重放后再判一次态即得正确结果
+  //   （若前一次 INSERT 已成功、只死在 DELETE 上，重放的 INSERT IGNORE 会返回 0 并走 DELETE，
+  //    最终状态仍是「已取消收藏」，与 toggle 意图一致）。
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const [ins] = await pool.query(`INSERT IGNORE INTO bookmarks (user_id, article_id) VALUES (?, ?)`, [
+        userId,
+        articleId,
+      ]);
+      if (Number((ins as { affectedRows?: number }).affectedRows ?? 0) === 1) {
+        return { bookmarked: true };
+      }
+      await pool.query(`DELETE FROM bookmarks WHERE user_id = ? AND article_id = ?`, [userId, articleId]);
+      return { bookmarked: false };
+    } catch (e) {
+      if (!isRetryableLockError(e) || attempt >= 2) throw e;
+      await sleepMs(5 + Math.floor(Math.random() * 25) * (attempt + 1));
+    }
   }
-  await pool.query(`DELETE FROM bookmarks WHERE user_id = ? AND article_id = ?`, [userId, articleId]);
-  return { bookmarked: false };
 }
 
 /** viewer 是否收藏了某篇 */

@@ -25,6 +25,9 @@ const PRICES: Record<string, number> = {
   topic: 5,
 };
 
+/** 单次请求草稿上限（与文章正文/草稿保存同口径） */
+const MAX_DRAFT = 100_000;
+
 // 演示模板（Python 服务不可用时兜底）
 const CONTENT: Record<string, string> = {
   continue:
@@ -50,8 +53,17 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   }
-  const draft = (body.draft ?? "").trim();
-  const author = (body.author ?? "博主").trim();
+  // v18.0：入参长度收口。原实现 draft 完全不设上限——登录用户可 POST 一个几十 MB 的
+  //   草稿，req.json() 全量缓冲进内存后再原样转发给 AgentScope 服务，是内存/CPU 放大面
+  //   （middleware 的限流只管请求**条数**，不管单条 body 大小）。
+  //   /api/agent/ask 早已对 question(500)/历史(600) 逐项截断，此处补齐同一口径：
+  //   上限取与文章正文一致的 10 万字（创作台保存草稿本身也是这个上限，正常流程不会触发）。
+  const rawDraft = body.draft ?? "";
+  if (rawDraft.length > MAX_DRAFT) {
+    return NextResponse.json({ error: "草稿过长（上限 10 万字）" }, { status: 400 });
+  }
+  const draft = rawDraft.trim();
+  const author = (body.author ?? "博主").trim().slice(0, 40);
   const cost = PRICES[mode];
 
   // DB 模式：登录 + 只读余额预检（真正扣款延后到「上游确认可用」之后）
